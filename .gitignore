@@ -1,0 +1,13 @@
+# Raw dataset is 618 MB (over GitHub's 100 MB limit). Download it separately.
+combined_by_floor.csv
+
+# Large intermediate file the dashboard doesn't use
+ac_analysis_outputs/q1_15min_interval_quality.csv
+
+# Local-only
+_backup/
+.ipynb_checkpoints/
+.claude/
+__pycache__/
+*.pyc
+.venv/
