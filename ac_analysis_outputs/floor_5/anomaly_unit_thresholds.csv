@@ -1,0 +1,5 @@
+unit,residual_q1_kW,residual_q3_kW,residual_limit_kW
+F5_z1_AC4(kW),0.0,0.0,0.0
+F5_z2_AC1(kW),0.0,0.0,0.0
+F5_z4_AC1(kW),0.0,0.0,0.0
+F5_z5_AC1(kW),-0.017165266106442575,0.0,0.025747899159663863

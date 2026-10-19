@@ -1,0 +1,24 @@
+FLOOR 3 RESULTS — generated from the supplied data
+Baseline: 2018-07-01 to 2019-06-30
+Reporting: 2019-07-01 to 2019-12-31
+Active units: 4
+Potential anomaly review events: 545
+Flagged 15-minute unit-intervals: 4265
+Flagged unit-hours: 1066.25
+Q1 resolution: 15 minutes; Q2 resolution: hourly
+Highest-excess unit: F3_z4_AC1(kW)
+Forecast selected on April–June validation: M1 median profile
+Common test hours: 4383
+Selected forecast MAE: 3.125 kW
+Same-hour-last-week MAE: 4.247 kW
+MAE improvement vs last week: 26.4%
+Selected NMBE: 10.06%
+Selected CV(RMSE): 75.13%
+Selected peak-hour MAE: 8.368 kW
+Suspected unverified closure weekdays: 23
+Weather: Open-Meteo hourly, shifted GMT -> UTC+7; hot day = daytime temp above baseline q90% for that month
+Flagged events on hot days: 232 of 545
+Weather-aware forecast (M5/M6) best test MAE: 3.204 kW (uses observed weather)
+Median indoor temperature while running (reporting): 20.8 °C
+Historical next-day demonstration: 2020-01-01
+All anomaly labels are potential anomalies. No diagnosed faults or proven savings.

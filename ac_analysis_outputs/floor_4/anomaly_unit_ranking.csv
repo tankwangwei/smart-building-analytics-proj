@@ -1,0 +1,5 @@
+unit,valid_intervals,flagged_intervals,after_hours_flagged_intervals,flagged_pct,valid_hours,flagged_hours,after_hours_flagged_hours,events,longest_event_hours,flagged_excess_kWh_est,events_on_hot_days
+F4_z4_AC1(kW),17348,2393,252,13.794097302282683,4337.0,598.25,63.0,255,9.25,2520.578868739164,81
+F4_z1_AC4(kW),17346,1208,16,6.964141588838926,4336.5,302.0,4.0,404,4.0,2403.670589202584,138
+F4_z2_AC1(kW),17346,2714,16,15.646258503401361,4336.5,678.5,4.0,223,4.0,2354.1565664903915,67
+F4_z5_AC1(kW),17348,908,106,5.2340327415264,4337.0,227.0,26.5,111,6.5,747.9062388472777,56

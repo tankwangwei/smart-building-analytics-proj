@@ -1,0 +1,10 @@
+5. Expected outputs
+
+Output 1 — AC electricity-consumption anomaly report
+The report will show 15-minute actual mean power against the expected baseline, with potential anomalies highlighted. It will include a ranked list of Floor 7 AC units based on flagged event frequency, persistence and estimated excess consumption, plus an event table showing time, duration, peak power and after-hours context. A 15-minute-slot-by-day-of-week heatmap will identify when unusual consumption occurs. Flags will support facilities-manager investigation and operating-schedule reviews; they will not be presented as confirmed equipment faults or proven energy savings.
+
+Output 2 — Next-day AC electrical-demand forecast
+The report will compare actual hourly floor demand with rolling next-day forecasts and display a 24-hour forecast issued at midnight. A comparison table will report MAE, NMBE, CV(RMSE), peak-hour error and the number of valid evaluation hours for each benchmark and model. The model will be chosen on an earlier validation period and then assessed on the July–December 2019 test period. Missing-data coverage and a separate sensitivity analysis excluding suspected closure days will be reported. The final 24-hour chart is a historical demonstration for the day following the dataset, rather than a current forecast.
+
+Optional combined view
+A facilities-management summary can place priority anomaly events beside expected peak-demand hours to support schedule reviews and demand planning. Any later energy-saving intervention will require measured before/after evidence and checks on indoor conditions.

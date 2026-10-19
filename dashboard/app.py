@@ -1,6 +1,6 @@
-"""Floor 7 AC dashboard: priority list, threshold tuner, setpoint/schedule simulator and forecasts.
+"""Multi-floor AC dashboard: priority list, threshold tuner, setpoint/schedule simulator, forecasts and floor comparison.
 
-Run the notebook first (it writes ac_analysis_outputs/), then:
+Run `python run_all_floors.py` first (it writes ac_analysis_outputs/floor_<n>/), then:
     streamlit run dashboard/app.py
 """
 import os
@@ -13,7 +13,9 @@ import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
 
-OUT = Path(os.environ.get("AC_OUTPUT_FOLDER", Path(__file__).resolve().parents[1] / "ac_analysis_outputs"))
+ROOT = Path(os.environ.get("AC_OUTPUT_FOLDER", Path(__file__).resolve().parents[1] / "ac_analysis_outputs"))
+FLOORS = sorted(int(p.name.split("_")[1]) for p in ROOT.glob("floor_*") if (p / "anomaly_15min_detail.csv").exists())
+DEFAULT_FLOOR = 7
 INTERVAL_HOURS = 0.25
 
 # Roles, not ranks: the same colour always means the same thing on every chart.
@@ -30,12 +32,20 @@ MODEL_LABELS = {"M0 yesterday": "Same hour yesterday", "M0 last week": "Same hou
                 "M5 regression + weather": "Regression + past demand + weather",
                 "M6 Random Forest + weather": "Random Forest + weather"}
 
-st.set_page_config(page_title="Floor 7 AC Dashboard", page_icon="❄️", layout="wide")
+st.set_page_config(page_title="Building AC Dashboard", page_icon="❄️", layout="wide")
 
 
-def unit_label(unit):
-    match = re.search(r"z(\d+)_AC(\d+)", unit)
-    return f"Zone {match[1]} · AC{match[2]}" if match else unit
+def unit_label(unit, with_floor=False):
+    match = re.search(r"F(\d+)_z(\d+)_AC(\d+)", unit)
+    if not match:
+        return unit
+    label = f"Zone {match[2]} · AC{match[3]}"
+    return f"Floor {match[1]} · {label}" if with_floor else label
+
+
+def position_of(unit):
+    """Same-position key shared by floors with the same layout, e.g. 'z1_AC4'."""
+    return unit.split("_", 1)[1].replace("(kW)", "")
 
 
 def to_bool(series):
@@ -53,7 +63,8 @@ def style(fig, height=380, ytitle=None, xtitle=None):
 
 # ---------------------------------------------------------------- data
 @st.cache_data(show_spinner="Loading analysis outputs…")
-def load():
+def load(floor):
+    OUT = ROOT / f"floor_{floor}"
     detail = pd.read_csv(OUT / "anomaly_15min_detail.csv", parse_dates=["Date"])
     for column in ["eligible", "hot_day"]:
         detail[column] = to_bool(detail[column]).fillna(False).astype(bool)
@@ -89,8 +100,8 @@ def run_rules(detail, thresholds, k_iqr, k_res, on_kw, persist, use_stat, use_af
 
 
 @st.cache_data(show_spinner=False)
-def flags_for(k_iqr, k_res, on_kw, persist, use_stat, use_after, use_persist):
-    data = load()
+def flags_for(floor, k_iqr, k_res, on_kw, persist, use_stat, use_after, use_persist):
+    data = load(floor)
     flags = run_rules(data["detail"], data["thresholds"], k_iqr, k_res, on_kw, persist,
                       use_stat, use_after, use_persist)
     # Replace the notebook's default-threshold flags with the recomputed ones
@@ -157,12 +168,17 @@ def unit_priority(d, events):
 
 
 # ---------------------------------------------------------------- page
-if not (OUT / "anomaly_15min_detail.csv").exists():
-    st.error(f"No analysis outputs found in `{OUT}`. Run `AC_Analysis_Floor7_Clear_Charts.ipynb` first, "
+if not FLOORS:
+    st.error(f"No analysis outputs found in `{ROOT}/floor_<n>/`. Run `python run_all_floors.py` first, "
              "or set the AC_OUTPUT_FOLDER environment variable.")
     st.stop()
 
-data = load()
+with st.sidebar:
+    floor = st.selectbox("Floor", FLOORS, index=FLOORS.index(DEFAULT_FLOOR) if DEFAULT_FLOOR in FLOORS else 0,
+                         format_func=lambda f: f"Floor {f}",
+                         help="Applies to every tab except Compare floors, which always shows all floors.")
+
+data = load(floor)
 detail = data["detail"]
 units = list(dict.fromkeys(detail["unit"]))
 unit_colour = {u: UNIT_COLOURS[i % len(UNIT_COLOURS)] for i, u in enumerate(units)}
@@ -189,17 +205,17 @@ with st.sidebar:
     hot_weight = st.slider("Hot-day multiplier", 0.0, 1.0, 0.5, 0.1,
                            help="Down-weight events on hot days: higher demand is partly explained by weather.")
 
-d = flags_for(k_iqr, k_res, on_kw, persist, use_stat, use_after, use_persist)
+d = flags_for(floor, k_iqr, k_res, on_kw, persist, use_stat, use_after, use_persist)
 events = build_events(d, hot_weight, after_weight)
 priority = unit_priority(d, events)
 
-st.title("Floor 7 AC: anomaly priorities and energy simulator")
+st.title(f"Floor {floor} AC: anomaly priorities and energy simulator")
 st.caption(f"CU-BEMS Chamchuri 5, Bangkok · reporting period {detail['Date'].min():%d %b %Y} – "
            f"{detail['Date'].max():%d %b %Y} · baseline Jul 2018 – Jun 2019 · weather: Open-Meteo. "
            "Flags are potential anomalies for review, not diagnosed faults; kWh figures are estimates, not verified savings.")
 
-tab_overview, tab_priority, tab_tuner, tab_sim, tab_forecast = st.tabs(
-    ["Overview", "Priority list", "Threshold tuner", "Setpoint & schedule simulator", "Forecast"])
+tab_overview, tab_priority, tab_tuner, tab_sim, tab_forecast, tab_compare = st.tabs(
+    ["Overview", "Priority list", "Threshold tuner", "Setpoint & schedule simulator", "Forecast", "Compare floors"])
 
 # ================================================================ overview
 with tab_overview:
@@ -218,7 +234,7 @@ with tab_overview:
         st.subheader("Review these units first")
         show = priority[["rank", "AC unit", "priority_score", "flagged_excess_kWh", "events",
                          "after_hours_flagged_h", "flagged_pct"]]
-        st.dataframe(show, hide_index=True, use_container_width=True, column_config={
+        st.dataframe(show, hide_index=True, width="stretch", column_config={
             "priority_score": st.column_config.ProgressColumn("Priority score", format="%.0f",
                                                               min_value=0, max_value=float(max(1, show["priority_score"].max()))),
             "flagged_excess_kWh": st.column_config.NumberColumn("Excess kWh (est.)", format="%.0f"),
@@ -230,7 +246,7 @@ with tab_overview:
             top = events.head(5).copy()
             top["AC unit"] = top["unit"].map(unit_label)
             st.dataframe(top[["AC unit", "start", "duration_h", "peak_kW", "excess_kWh", "reason"]],
-                         hide_index=True, use_container_width=True, column_config={
+                         hide_index=True, width="stretch", column_config={
                              "start": st.column_config.DatetimeColumn("Start", format="ddd D MMM YYYY, HH:mm"),
                              "duration_h": st.column_config.NumberColumn("Hours", format="%.2f"),
                              "peak_kW": st.column_config.NumberColumn("Peak kW", format="%.1f"),
@@ -243,14 +259,14 @@ with tab_overview:
         peak = n24["predicted_kW"].idxmax()
         fig.add_annotation(x=peak, y=n24["predicted_kW"].max(), text=f"Peak {peak:%H:%M}: {n24['predicted_kW'].max():.1f} kW",
                            showarrow=True, arrowhead=2)
-        st.plotly_chart(style(fig, 300, "kW"), use_container_width=True)
+        st.plotly_chart(style(fig, 300, "kW"), width="stretch")
         st.caption(f"Method: {MODEL_LABELS.get(n24['method'].iloc[0], n24['method'].iloc[0])} · "
                    f"predicted daily energy {n24['predicted_kW'].sum():,.0f} kWh · holidays are not modelled.")
         st.subheader("Comfort while running (reporting period)")
         comfort = sens[["median_indoor_temp_C_running", "pct_running_hours_in_comfort_band", "pct_running_hours_in_RH_band"]].copy()
         comfort.index = comfort.index.map(unit_label)
         comfort.columns = ["Median indoor °C", "% hours 23–26 °C", "% hours RH 40–60%"]
-        st.dataframe(comfort.round(1), use_container_width=True)
+        st.dataframe(comfort.round(1), width="stretch")
         if comfort["Median indoor °C"].median() < 23:
             st.info("Zones are held **below** the comfort band. This points to overcooling. "
                     "Try the setpoint simulator to see the potential savings.")
@@ -260,7 +276,7 @@ with tab_priority:
     st.subheader("Unit priority list")
     st.caption("Priority score = Σ events of excess kWh × after-hours multiplier × hot-day multiplier (sidebar). "
                "Ranked by score; use it to decide which unit to inspect first.")
-    st.dataframe(priority, hide_index=True, use_container_width=True, column_config={
+    st.dataframe(priority, hide_index=True, width="stretch", column_config={
         "priority_score": st.column_config.ProgressColumn("Priority score", format="%.0f", min_value=0,
                                                           max_value=float(max(1, priority["priority_score"].max()))),
         "valid_h": st.column_config.NumberColumn("Valid hours", format="%.0f"),
@@ -276,7 +292,7 @@ with tab_priority:
         st.warning("No events with the current thresholds.")
     else:
         f1, f2, f3, f4 = st.columns(4)
-        pick_units = f1.multiselect("Units", units, default=units, format_func=unit_label)
+        pick_units = f1.multiselect("Units", units, default=units, format_func=unit_label, key=f"event_units_{floor}")
         min_hours = f2.number_input("Min duration (h)", 0.0, 48.0, 0.0, 0.25)
         only_after = f3.checkbox("After-hours only")
         hide_hot = f4.checkbox("Hide hot-day events")
@@ -289,7 +305,7 @@ with tab_priority:
         ev.insert(0, "rank", range(1, len(ev) + 1))
         cols = ["rank", "AC unit", "start", "end", "duration_h", "peak_kW", "excess_kWh", "after_hours_h",
                 "outdoor_C", "indoor_C", "priority_score", "reason"]
-        st.dataframe(ev[cols], hide_index=True, use_container_width=True, height=360, column_config={
+        st.dataframe(ev[cols], hide_index=True, width="stretch", height=360, column_config={
             "start": st.column_config.DatetimeColumn("Start", format="ddd D MMM YYYY, HH:mm"),
             "end": st.column_config.DatetimeColumn("End", format="HH:mm"),
             "duration_h": st.column_config.NumberColumn("Hours", format="%.2f"),
@@ -304,12 +320,12 @@ with tab_priority:
 
     st.subheader("Inspect a unit")
     a, b = st.columns([1, 2])
-    unit = a.selectbox("AC unit", priority.index.tolist(), format_func=unit_label)
+    unit = a.selectbox("AC unit", priority.index.tolist(), format_func=unit_label, key=f"inspect_unit_{floor}")
     u = d.loc[d["unit"].eq(unit)].set_index("Date")
     weekly = u["excess_kWh_est"].where(u["flagged"], 0).resample("W-MON", label="left", closed="left").sum()
     weeks = weekly.index.tolist()
     default_week = weekly.idxmax() if weekly.max() > 0 else weeks[0]
-    week = b.select_slider("Week starting", options=weeks, value=default_week,
+    week = b.select_slider("Week starting", options=weeks, value=default_week, key=f"inspect_week_{floor}_{unit}",
                            format_func=lambda t: f"{t:%d %b %Y}" + (" (most excess)" if t == weekly.idxmax() else ""))
     view = u.loc[week: week + pd.Timedelta(days=7) - pd.Timedelta(minutes=15)]
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.72, 0.28], vertical_spacing=0.06)
@@ -324,7 +340,7 @@ with tab_priority:
     style(fig, 520)
     fig.update_yaxes(title="AC power (kW)", row=1, col=1)
     fig.update_yaxes(title="°C", rangemode="normal", row=2, col=1)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     st.subheader("When are flags most common?")
     hm = d.loc[d["eligible"]].assign(dow=lambda x: x["Date"].dt.dayofweek,
@@ -337,7 +353,7 @@ with tab_priority:
                                hovertemplate="%{y} %{x}<br>%{z:.1f}% of valid intervals flagged<extra></extra>"))
     fig.update_yaxes(autorange="reversed")
     fig.update_xaxes(tickvals=times[::8], ticktext=times[::8])
-    st.plotly_chart(style(fig, 320), use_container_width=True)
+    st.plotly_chart(style(fig, 320), width="stretch")
 
 # ================================================================ threshold tuner
 with tab_tuner:
@@ -355,9 +371,9 @@ with tab_tuner:
                "Persistence (intervals)": persist, "'Running' threshold (kW)": on_kw}[param]
 
     @st.cache_data(show_spinner="Sweeping thresholds…")
-    def sweep(param, k_iqr, k_res, on_kw, persist, use_stat, use_after, use_persist):
+    def sweep(floor, param, k_iqr, k_res, on_kw, persist, use_stat, use_after, use_persist):
         rows = []
-        base = load()
+        base = load(floor)
         for v in grids[param]:
             args = dict(k_iqr=k_iqr, k_res=k_res, on_kw=on_kw, persist=persist)
             key = {"Statistical IQR multiplier k": "k_iqr", "Residual IQR multiplier": "k_res",
@@ -375,7 +391,7 @@ with tab_tuner:
                          "events": run.loc[fl["flagged"]].nunique()})
         return pd.DataFrame(rows)
 
-    sw = sweep(param, k_iqr, k_res, on_kw, persist, use_stat, use_after, use_persist)
+    sw = sweep(floor, param, k_iqr, k_res, on_kw, persist, use_stat, use_after, use_persist)
     # Elbow: point furthest from the straight line joining the ends of the normalised curve
     # The elbow is found on the varied rule's own curve (the combined curve is dominated by the other rules)
     y = sw["rule_pct"].to_numpy()
@@ -403,10 +419,10 @@ with tab_tuner:
         fig.add_vline(x=current, line=dict(color=EXPECTED, dash="dash"), annotation_text="current")
         if elbow is not None:
             fig.add_vline(x=elbow, line=dict(color=MUTED, dash="dot"), annotation_text="elbow", annotation_position="bottom right")
-        col.plotly_chart(style(fig, 340, title, param), use_container_width=True)
+        col.plotly_chart(style(fig, 340, title, param), width="stretch")
     fig = go.Figure(go.Bar(x=sw["value"], y=sw["events"], marker_color=ACTUAL, name="Events"))
     fig.add_vline(x=current, line=dict(color=EXPECTED, dash="dash"))
-    st.plotly_chart(style(fig, 280, "Number of events", param), use_container_width=True)
+    st.plotly_chart(style(fig, 280, "Number of events", param), width="stretch")
     st.caption("Set the chosen value in the sidebar. The priority list and overview update immediately.")
 
 # ================================================================ simulator
@@ -438,7 +454,7 @@ with tab_sim:
         st.markdown("**Per-unit sensitivity (from baseline)**")
         st.dataframe(pd.DataFrame({"kW/°C": slope.round(2), "% per °C": sens["pct_per_degC"].round(1),
                                    "R²": sens["R2"].round(2)}).set_index(sens.index.map(unit_label)),
-                     use_container_width=True)
+                     width="stretch")
 
     sim = detail.loc[detail["eligible"] & detail["actual_kW"].notna(),
                      ["Date", "unit", "actual_kW", "indoor_temp_C"]].copy()
@@ -501,14 +517,14 @@ with tab_sim:
     if best is not None:
         fig.add_vline(x=best["setpoint"], line=dict(color=GOOD, dash="dot"), annotation_text="recommended",
                       annotation_position="bottom right")
-    g1.plotly_chart(style(fig, 340, "kWh saved (reporting period)", "Setpoint (°C)"), use_container_width=True)
+    g1.plotly_chart(style(fig, 340, "kWh saved (reporting period)", "Setpoint (°C)"), width="stretch")
     fig = go.Figure(go.Scatter(x=sp_table["setpoint"], y=sp_table["comfort_pct"], mode="lines+markers",
                                line=dict(color=GOOD, width=2), marker=dict(size=8), name="Comfort compliance"))
     fig.add_hline(y=comfort_target, line=dict(color=MUTED, dash="dot"), annotation_text="target")
     fig.add_vline(x=setpoint, line=dict(color=EXPECTED, dash="dash"))
     style(fig, 340, f"% running time in {band[0]:g}–{band[1]:g} °C", "Setpoint (°C)")
     fig.update_yaxes(range=[0, 100])
-    g2.plotly_chart(fig, use_container_width=True)
+    g2.plotly_chart(fig, width="stretch")
 
     st.markdown("**Per unit at the selected setpoint**")
     per_unit = []
@@ -523,11 +539,11 @@ with tab_sim:
                          "Median indoor °C (running)": part.loc[part["running"], "indoor_temp_C"].median(),
                          "Setpoint saving kWh": sp_unit, "Schedule saving kWh": sch_unit,
                          "Saving %": 100 * (sp_unit + sch_unit) / energy if energy else np.nan})
-    st.dataframe(pd.DataFrame(per_unit).round(1), hide_index=True, use_container_width=True)
+    st.dataframe(pd.DataFrame(per_unit).round(1), hide_index=True, width="stretch")
     with st.expander("Assumptions and limits"):
         st.markdown(f"""
 - Each zone's current effective setpoint = its median indoor temperature while the unit runs. A new setpoint shifts that zone's whole temperature profile by the difference, so normal variability (start-up pull-down, afternoon peaks) is kept.
-- kW saved per °C = the unit's outdoor-temperature regression slope (baseline weekdays, unit running; hour-of-day controlled). Typical literature values are 3–10 % per °C. Floor 7 units: {sens['pct_per_degC'].min():.1f}–{sens['pct_per_degC'].max():.1f} % per °C.
+- kW saved per °C = the unit's outdoor-temperature regression slope (baseline weekdays, unit running; hour-of-day controlled). Typical literature values are 3–10 % per °C. Floor {floor} units: {sens['pct_per_degC'].min():.1f}–{sens['pct_per_degC'].max():.1f} % per °C.
 - Savings are capped at the unit's actual power and ignore humidity/latent load and compressor part-load efficiency.
 - The schedule saving assumes all AC energy outside the window is avoidable. Check for legitimate after-hours use (events, cleaning, servers).
 - Comfort compliance uses the zone S1 sensor only; it does not measure occupant satisfaction. Indoor RH (proposal band 40–60 %) is shown on the Overview tab.
@@ -546,7 +562,7 @@ with tab_forecast:
     tm.insert(0, "Model", tm.index.map(lambda m: MODEL_LABELS.get(m, m)))
     tm["Validation MAE_kW"] = vm["MAE_kW"].reindex(tm.index)
     st.dataframe(tm[["Model", "Validation MAE_kW", "MAE_kW", "RMSE_kW", "NMBE_pct", "CV_RMSE_pct", "peak_hour_MAE_kW", "hours"]]
-                 .round(2), hide_index=True, use_container_width=True)
+                 .round(2), hide_index=True, width="stretch")
 
     models = [c for c in fc.columns if c != "floor_kW"]
     c1, c2 = st.columns([2, 1])
@@ -558,7 +574,7 @@ with tab_forecast:
     fig = go.Figure(go.Scatter(x=view.index, y=view["floor_kW"], name="Actual", line=dict(color=ACTUAL, width=2)))
     for colour, m in zip([EXPECTED, "#1baf7a", "#4a3aa7"], picked):
         fig.add_trace(go.Scatter(x=view.index, y=view[m], name=MODEL_LABELS.get(m, m), line=dict(color=colour, width=2, dash="dash")))
-    st.plotly_chart(style(fig, 380, "Floor AC demand (kW)"), use_container_width=True)
+    st.plotly_chart(style(fig, 380, "Floor AC demand (kW)"), width="stretch")
 
     c1, c2 = st.columns(2)
     err_model = picked[0] if picked else selected_model
@@ -566,7 +582,7 @@ with tab_forecast:
     by_hour = (common[err_model] - common["floor_kW"]).abs().groupby(common.index.hour).mean()
     fig = go.Figure(go.Bar(x=by_hour.index, y=by_hour.values, marker_color=ACTUAL,
                            hovertemplate="%{x}:00 · MAE %{y:.2f} kW<extra></extra>"))
-    c1.plotly_chart(style(fig, 320, "MAE (kW)", f"Hour of day · {MODEL_LABELS.get(err_model, err_model)}"), use_container_width=True)
+    c1.plotly_chart(style(fig, 320, "MAE (kW)", f"Hour of day · {MODEL_LABELS.get(err_model, err_model)}"), width="stretch")
 
     w = data["weather"]
     hourly = fc[["floor_kW"]].join(w)
@@ -576,4 +592,136 @@ with tab_forecast:
     fig = go.Figure(go.Scatter(x=daily["temp"], y=daily["kWh"], mode="markers", marker=dict(color=ACTUAL, size=8, opacity=.7),
                                text=daily.index.strftime("%a %d %b"),
                                hovertemplate="%{text}<br>%{x:.1f} °C · %{y:,.0f} kWh<extra></extra>", name="Weekday"))
-    c2.plotly_chart(style(fig, 320, "Daily AC energy (kWh)", "Daytime outdoor temperature (°C)"), use_container_width=True)
+    c2.plotly_chart(style(fig, 320, "Daily AC energy (kWh)", "Daytime outdoor temperature (°C)"), width="stretch")
+
+# ================================================================ compare floors
+with tab_compare:
+    st.subheader("How do the floors compare?")
+    st.caption("Floors 3, 4, 5 and 7 share the same AC layout, so units in the same position can be compared directly. "
+               "The sidebar thresholds and priority weights apply to every floor. Equal layout does not prove equal "
+               "occupancy or equipment condition: treat differences as questions for the facilities team, not verdicts.")
+    floor_colour = {f: UNIT_COLOURS[i % len(UNIT_COLOURS)] for i, f in enumerate(FLOORS)}
+
+    summary_rows, unit_tables, details = [], [], {}
+    for f in FLOORS:
+        fdata = load(f)
+        fd = flags_for(f, k_iqr, k_res, on_kw, persist, use_stat, use_after, use_persist)
+        fev = build_events(fd, hot_weight, after_weight)
+        fpr = unit_priority(fd, fev)
+        fpr.insert(0, "floor", f)
+        unit_tables.append(fpr)
+        details[f] = fd
+        k = fdata["floor_kpis"]
+        s_ = fdata["sensitivity"]
+        vm_, tm_ = fdata["validation_metrics"], fdata["test_metrics"]
+        chosen = vm_["MAE_kW"].idxmin()
+        summary_rows.append({
+            "Floor": f"Floor {f}",
+            "AC energy kWh": k["estimated_energy_kWh_valid_intervals"],
+            "After-hours %": k["after_hours_energy_pct_valid_intervals"],
+            "15-min peak kW": k["15min_peak_kW"],
+            "Flagged events": len(fev),
+            "Excess kWh (est.)": fpr["flagged_excess_kWh"].sum(),
+            "Priority score": fpr["priority_score"].sum(),
+            "Median indoor °C (running)": s_["median_indoor_temp_C_running"].median(),
+            "% running time 23–26 °C": s_["pct_running_hours_in_comfort_band"].mean(),
+            "Forecast MAE kW": tm_.loc[chosen, "MAE_kW"],
+            "Forecast model": MODEL_LABELS.get(chosen, chosen)})
+    summary = pd.DataFrame(summary_rows)
+
+    b1, b2, b3, b4 = st.columns(4)
+    b1.metric("Floors analysed", len(FLOORS))
+    b2.metric("AC energy, all floors", f"{summary['AC energy kWh'].sum():,.0f} kWh")
+    b3.metric("Flagged events, all floors", f"{int(summary['Flagged events'].sum()):,}")
+    b4.metric("Floor to review first", summary.loc[summary["Priority score"].idxmax(), "Floor"],
+              help="Highest total priority score")
+
+    st.dataframe(summary.round(1), hide_index=True, width="stretch", column_config={
+        "AC energy kWh": st.column_config.NumberColumn(format="%.0f"),
+        "Excess kWh (est.)": st.column_config.NumberColumn(format="%.0f"),
+        "Priority score": st.column_config.ProgressColumn(format="%.0f", min_value=0,
+                                                          max_value=float(max(1, summary["Priority score"].max())))})
+
+    c1, c2 = st.columns(2)
+    for col, metric, title in [(c1, "Excess kWh (est.)", "Estimated excess kWh in flagged periods"),
+                               (c2, "After-hours %", "Share of AC energy used after hours (%)")]:
+        fig = go.Figure(go.Bar(x=summary["Floor"], y=summary[metric], marker_color=ACTUAL,
+                               text=summary[metric].map(lambda v: f"{v:,.0f}" if v >= 100 else f"{v:.1f}"),
+                               textposition="outside", hovertemplate="%{x}: %{y:,.1f}<extra></extra>"))
+        col.plotly_chart(style(fig, 320, title), width="stretch")
+
+    # ---- building-wide priority list, with a same-position peer benchmark
+    st.subheader("Building-wide priority list")
+    allunits = pd.concat(unit_tables)
+    mean_kw = {u: details[f].loc[details[f]["unit"].eq(u) & details[f]["eligible"], "actual_kW"].mean()
+               for f in FLOORS for u in details[f]["unit"].unique()}
+    allunits["position"] = allunits.index.map(position_of)
+    allunits["mean_kW"] = allunits.index.map(mean_kw)
+
+    def vs_peers(row):
+        peers = [v for u, v in mean_kw.items() if position_of(u) == row["position"] and u != row.name]
+        peer = np.nanmedian(peers) if peers else np.nan
+        return 100 * (row["mean_kW"] / peer - 1) if peer else np.nan
+
+    allunits["vs_peers_pct"] = allunits.apply(vs_peers, axis=1)
+    allunits = allunits.sort_values("priority_score", ascending=False)
+    allunits["rank"] = range(1, len(allunits) + 1)
+    allunits["AC unit"] = [unit_label(u, with_floor=True) for u in allunits.index]
+    st.caption("All units on all floors, ranked by priority score. 'vs same-position peers' compares a unit's average "
+               "power with the median of the same unit on the other floors: +30% means it draws 30% more than its peers.")
+    st.dataframe(allunits[["rank", "AC unit", "priority_score", "flagged_excess_kWh", "events", "after_hours_flagged_h",
+                           "flagged_pct", "mean_kW", "vs_peers_pct"]],
+                 hide_index=True, width="stretch", column_config={
+                     "priority_score": st.column_config.ProgressColumn("Priority score", format="%.0f", min_value=0,
+                                                                       max_value=float(max(1, allunits["priority_score"].max()))),
+                     "flagged_excess_kWh": st.column_config.NumberColumn("Excess kWh (est.)", format="%.0f"),
+                     "events": st.column_config.NumberColumn("Events"),
+                     "after_hours_flagged_h": st.column_config.NumberColumn("After-hours flagged (h)", format="%.1f"),
+                     "flagged_pct": st.column_config.NumberColumn("Flagged %", format="%.1f%%"),
+                     "mean_kW": st.column_config.NumberColumn("Average kW", format="%.2f"),
+                     "vs_peers_pct": st.column_config.NumberColumn("vs same-position peers", format="%+.0f%%")})
+    st.download_button("Download building-wide list (CSV)",
+                       allunits.drop(columns=["position"]).to_csv().encode("utf-8"), "ac_priority_all_floors.csv", "text/csv")
+
+    # ---- same-position comparison
+    st.subheader("Same unit, different floors")
+    positions = sorted({position_of(u) for u in mean_kw})
+    pc1, pc2 = st.columns([1, 2])
+    pos = pc1.selectbox("Unit position", positions, format_func=lambda p: unit_label(f"F0_{p}"))
+    day_type = pc2.radio("Days", ["Weekdays", "Saturdays", "Sundays"], horizontal=True)
+    times = [f"{s // 4:02d}:{(s % 4) * 15:02d}" for s in range(96)]
+    fig = go.Figure()
+    for f in FLOORS:
+        fd = details[f]
+        part = fd.loc[fd["unit"].eq(f"F{f}_{pos}(kW)") & fd["eligible"]]
+        dow = part["Date"].dt.dayofweek
+        part = part.loc[{"Weekdays": dow < 5, "Saturdays": dow == 5, "Sundays": dow == 6}[day_type]]
+        if part.empty:
+            continue
+        slot = part["Date"].dt.hour * 4 + part["Date"].dt.minute // 15
+        profile = part.groupby(slot)["actual_kW"].mean().reindex(range(96))
+        fig.add_trace(go.Scatter(x=times, y=profile.values, name=f"Floor {f}",
+                                 line=dict(color=floor_colour[f], width=3 if f == floor else 2)))
+    style(fig, 380, "Average AC power (kW)", f"Time of day · {day_type.lower()}, reporting period")
+    fig.update_xaxes(tickvals=times[::8])
+    st.plotly_chart(fig, width="stretch")
+
+    rows = []
+    for f in FLOORS:
+        u = f"F{f}_{pos}(kW)"
+        fd = details[f]
+        part = fd.loc[fd["unit"].eq(u) & fd["eligible"]]
+        if part.empty:
+            continue
+        running = part["actual_kW"].gt(on_kw)
+        rows.append({"Floor": f"Floor {f}",
+                     "Average kW": part["actual_kW"].mean(),
+                     "vs peers": allunits.loc[u, "vs_peers_pct"] if u in allunits.index else np.nan,
+                     "After-hours kWh": part.loc[running & part["schedule_on"].eq(False), "actual_kW"].sum() * INTERVAL_HOURS,
+                     "Flagged excess kWh": part.loc[part["flagged"], "excess_kWh_est"].sum(),
+                     "Median indoor °C (running)": part.loc[running, "indoor_temp_C"].median(),
+                     "kW per °C outdoor": load(f)["sensitivity"]["kW_per_degC_outdoor"].get(u, np.nan)})
+    st.dataframe(pd.DataFrame(rows).round(2), hide_index=True, width="stretch", column_config={
+        "vs peers": st.column_config.NumberColumn(format="%+.0f%%"),
+        "After-hours kWh": st.column_config.NumberColumn(format="%.0f"),
+        "Flagged excess kWh": st.column_config.NumberColumn(format="%.0f")})

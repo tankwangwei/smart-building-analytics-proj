@@ -1,0 +1,9 @@
+,predicted_hours,scorable_hours
+M0 yesterday,4400,4384
+M0 last week,4400,4384
+M1 median profile,4416,4400
+M2 calendar regression,4416,4400
+M3 regression with lags,4384,4368
+M4 Random Forest,4384,4368
+M5 regression + weather,4384,4368
+M6 Random Forest + weather,4384,4368

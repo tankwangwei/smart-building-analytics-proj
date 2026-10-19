@@ -2,7 +2,7 @@
 combined_by_floor.csv
 
 # Large intermediate file the dashboard doesn't use
-ac_analysis_outputs/q1_15min_interval_quality.csv
+ac_analysis_outputs/**/q1_15min_interval_quality.csv
 
 # Local-only
 _backup/

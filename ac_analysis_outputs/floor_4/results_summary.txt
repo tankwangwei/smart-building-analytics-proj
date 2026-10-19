@@ -1,0 +1,24 @@
+FLOOR 4 RESULTS — generated from the supplied data
+Baseline: 2018-07-01 to 2019-06-30
+Reporting: 2019-07-01 to 2019-12-31
+Active units: 4
+Potential anomaly review events: 993
+Flagged 15-minute unit-intervals: 7223
+Flagged unit-hours: 1805.75
+Q1 resolution: 15 minutes; Q2 resolution: hourly
+Highest-excess unit: F4_z4_AC1(kW)
+Forecast selected on April–June validation: M4 Random Forest
+Common test hours: 4220
+Selected forecast MAE: 3.449 kW
+Same-hour-last-week MAE: 4.467 kW
+MAE improvement vs last week: 22.8%
+Selected NMBE: -1.14%
+Selected CV(RMSE): 70.68%
+Selected peak-hour MAE: 11.103 kW
+Suspected unverified closure weekdays: 24
+Weather: Open-Meteo hourly, shifted GMT -> UTC+7; hot day = daytime temp above baseline q90% for that month
+Flagged events on hot days: 342 of 993
+Weather-aware forecast (M5/M6) best test MAE: 3.301 kW (uses observed weather)
+Median indoor temperature while running (reporting): 20.4 °C
+Historical next-day demonstration: 2020-01-01
+All anomaly labels are potential anomalies. No diagnosed faults or proven savings.
