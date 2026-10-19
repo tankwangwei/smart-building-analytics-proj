@@ -5,7 +5,7 @@
 2. Install the extra packages once: `pip install -r dashboard/requirements.txt`
 3. From the project folder: `python -m streamlit run dashboard/app.py`
 
-Pick a floor in the sidebar (Floor 7 by default). Tabs:
+The sidebar **View** opens on **Whole building** (Floors 3, 4, 5 and 7 combined); pick a single floor to focus on it. Tabs:
 - **Overview**: KPIs, top units/events to review, next-day forecast, comfort check.
 - **Priority list**: units and events ranked by excess kWh × after-hours × hot-day weighting, with filters, CSV export, a weekly drill-down and a heatmap.
 - **Threshold tuner**: sweeps one rule parameter and shows how flags change, with an elbow suggestion.

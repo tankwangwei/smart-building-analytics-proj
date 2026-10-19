@@ -15,7 +15,9 @@ from plotly.subplots import make_subplots
 
 ROOT = Path(os.environ.get("AC_OUTPUT_FOLDER", Path(__file__).resolve().parents[1] / "ac_analysis_outputs"))
 FLOORS = sorted(int(p.name.split("_")[1]) for p in ROOT.glob("floor_*") if (p / "anomaly_15min_detail.csv").exists())
-DEFAULT_FLOOR = 7
+ALL = "all"  # selector value for the whole-building view
+DEFAULT_SCOPE = ALL
+SCOPE = None  # set from the sidebar; unit labels include the floor in the whole-building view
 INTERVAL_HOURS = 0.25
 
 # Roles, not ranks: the same colour always means the same thing on every chart.
@@ -30,12 +32,15 @@ MODEL_LABELS = {"M0 yesterday": "Same hour yesterday", "M0 last week": "Same hou
                 "M1 median profile": "Typical weekly pattern", "M2 calendar regression": "Time-based regression",
                 "M3 regression with lags": "Regression + past demand", "M4 Random Forest": "Random Forest",
                 "M5 regression + weather": "Regression + past demand + weather",
-                "M6 Random Forest + weather": "Random Forest + weather"}
+                "M6 Random Forest + weather": "Random Forest + weather",
+                "Selected per floor": "Each floor's validation-selected model"}
 
 st.set_page_config(page_title="Building AC Dashboard", page_icon="❄️", layout="wide")
 
 
-def unit_label(unit, with_floor=False):
+def unit_label(unit, with_floor=None):
+    if with_floor is None:
+        with_floor = SCOPE == ALL
     match = re.search(r"F(\d+)_z(\d+)_AC(\d+)", unit)
     if not match:
         return unit
@@ -62,8 +67,60 @@ def style(fig, height=380, ytitle=None, xtitle=None):
 
 
 # ---------------------------------------------------------------- data
+def forecast_metrics(table, models):
+    """Test-period accuracy on hours where every model has a value (same rules as the notebook)."""
+    common = table[["floor_kW"] + models].dropna()
+    actual = common["floor_kW"]
+    peak = actual >= actual.quantile(.9)
+    rows = []
+    for m in models:
+        error = common[m] - actual
+        rmse = np.sqrt(np.mean(error ** 2))
+        rows.append({"model": m, "hours": len(common), "MAE_kW": error.abs().mean(), "RMSE_kW": rmse,
+                     "NMBE_pct": 100 * error.mean() / actual.mean(), "CV_RMSE_pct": 100 * rmse / actual.mean(),
+                     "peak_hour_MAE_kW": error.loc[peak].abs().mean()})
+    return pd.DataFrame(rows).set_index("model").sort_values("MAE_kW")
+
+
+@st.cache_data(show_spinner="Combining all floors…")
+def load_building():
+    parts = {f: load(f) for f in FLOORS}
+    first = parts[FLOORS[0]]
+    data = {"detail": pd.concat([p["detail"] for p in parts.values()], ignore_index=True),
+            "thresholds": pd.concat([p["thresholds"] for p in parts.values()]),
+            "sensitivity": pd.concat([p["sensitivity"] for p in parts.values()]),
+            "weather": first["weather"]}
+
+    # Building demand = sum of floor totals; an hour counts only when every floor is valid
+    n = len(FLOORS)
+    models = [c for c in first["forecast"].columns if c != "floor_kW"]
+    forecast = pd.DataFrame({c: pd.concat([p["forecast"][c] for p in parts.values()], axis=1).sum(axis=1, min_count=n)
+                             for c in ["floor_kW"] + models})
+    chosen = {f: p["validation_metrics"]["MAE_kW"].idxmin() for f, p in parts.items()}
+    forecast["Selected per floor"] = pd.concat([parts[f]["forecast"][m] for f, m in chosen.items()], axis=1).sum(axis=1, min_count=n)
+    data["forecast"] = forecast
+    data["test_metrics"] = forecast_metrics(forecast, models + ["Selected per floor"])
+    # Only the combination of each floor's validation choice is "selected" for the building
+    data["validation_metrics"] = pd.DataFrame({"MAE_kW": [np.nan]}, index=["Selected per floor"])
+    data["selected_model"] = "Selected per floor"
+    data["next24"] = pd.DataFrame({"predicted_kW": sum(p["next24"]["predicted_kW"] for p in parts.values()),
+                                   "method": "Selected per floor"})
+
+    # Floor energies add up; the building peak needs the summed 15-minute load
+    k = pd.DataFrame({f: p["floor_kpis"] for f, p in parts.items()}).T
+    energy = k["estimated_energy_kWh_valid_intervals"]
+    total_15 = data["detail"].pivot_table(index="Date", columns="unit", values="actual_kW").sum(axis=1, min_count=data["detail"]["unit"].nunique())
+    data["floor_kpis"] = pd.Series({
+        "estimated_energy_kWh_valid_intervals": energy.sum(),
+        "after_hours_energy_pct_valid_intervals": (energy * k["after_hours_energy_pct_valid_intervals"]).sum() / energy.sum(),
+        "15min_peak_kW": total_15.max()})
+    return data
+
+
 @st.cache_data(show_spinner="Loading analysis outputs…")
 def load(floor):
+    if floor == ALL:
+        return load_building()
     OUT = ROOT / f"floor_{floor}"
     detail = pd.read_csv(OUT / "anomaly_15min_detail.csv", parse_dates=["Date"])
     for column in ["eligible", "hot_day"]:
@@ -174,9 +231,13 @@ if not FLOORS:
     st.stop()
 
 with st.sidebar:
-    floor = st.selectbox("Floor", FLOORS, index=FLOORS.index(DEFAULT_FLOOR) if DEFAULT_FLOOR in FLOORS else 0,
-                         format_func=lambda f: f"Floor {f}",
-                         help="Applies to every tab except Compare floors, which always shows all floors.")
+    scopes = [ALL] + FLOORS
+    floor = st.selectbox("View", scopes, index=scopes.index(DEFAULT_SCOPE) if DEFAULT_SCOPE in scopes else 0,
+                         format_func=lambda f: "Whole building" if f == ALL else f"Floor {f}",
+                         help="Whole building combines Floors " + ", ".join(map(str, FLOORS)) + ". "
+                              "Applies to every tab except Compare floors, which always shows each floor.")
+SCOPE = floor
+SCOPE_NAME = "Building" if floor == ALL else f"Floor {floor}"
 
 data = load(floor)
 detail = data["detail"]
@@ -209,7 +270,10 @@ d = flags_for(floor, k_iqr, k_res, on_kw, persist, use_stat, use_after, use_pers
 events = build_events(d, hot_weight, after_weight)
 priority = unit_priority(d, events)
 
-st.title(f"Floor {floor} AC: anomaly priorities and energy simulator")
+st.title(f"{SCOPE_NAME} AC: anomaly priorities and energy simulator")
+if floor == ALL:
+    st.caption(f"Whole building = Floors {', '.join(map(str, FLOORS))} ({len(units)} AC units). "
+               "Pick a single floor in the sidebar to focus on it.")
 st.caption(f"CU-BEMS Chamchuri 5, Bangkok · reporting period {detail['Date'].min():%d %b %Y} – "
            f"{detail['Date'].max():%d %b %Y} · baseline Jul 2018 – Jun 2019 · weather: Open-Meteo. "
            "Flags are potential anomalies for review, not diagnosed faults; kWh figures are estimates, not verified savings.")
@@ -252,7 +316,8 @@ with tab_overview:
                              "peak_kW": st.column_config.NumberColumn("Peak kW", format="%.1f"),
                              "excess_kWh": st.column_config.NumberColumn("Excess kWh", format="%.1f")})
     with right:
-        st.subheader("Next-day forecast (demo: day after dataset)")
+        st.subheader("Next-day forecast (demo: day after dataset)" if floor != ALL
+                     else "Next-day building forecast (demo: day after dataset)")
         n24 = data["next24"]
         fig = go.Figure(go.Scatter(x=n24.index, y=n24["predicted_kW"], mode="lines+markers",
                                    line=dict(color=ACTUAL, width=2), marker=dict(size=8), name="Forecast"))
@@ -543,7 +608,7 @@ with tab_sim:
     with st.expander("Assumptions and limits"):
         st.markdown(f"""
 - Each zone's current effective setpoint = its median indoor temperature while the unit runs. A new setpoint shifts that zone's whole temperature profile by the difference, so normal variability (start-up pull-down, afternoon peaks) is kept.
-- kW saved per °C = the unit's outdoor-temperature regression slope (baseline weekdays, unit running; hour-of-day controlled). Typical literature values are 3–10 % per °C. Floor {floor} units: {sens['pct_per_degC'].min():.1f}–{sens['pct_per_degC'].max():.1f} % per °C.
+- kW saved per °C = the unit's outdoor-temperature regression slope (baseline weekdays, unit running; hour-of-day controlled). Typical literature values are 3–10 % per °C. {SCOPE_NAME} units: {sens['pct_per_degC'].min():.1f}–{sens['pct_per_degC'].max():.1f} % per °C.
 - Savings are capped at the unit's actual power and ignore humidity/latent load and compressor part-load efficiency.
 - The schedule saving assumes all AC energy outside the window is avoidable. Check for legitimate after-hours use (events, cleaning, servers).
 - Comfort compliance uses the zone S1 sensor only; it does not measure occupant satisfaction. Indoor RH (proposal band 40–60 %) is shown on the Overview tab.
@@ -554,14 +619,18 @@ with tab_forecast:
     fc = data["forecast"]
     tm = data["test_metrics"].copy()
     vm = data["validation_metrics"]
-    selected_model = vm["MAE_kW"].idxmin()
+    selected_model = data.get("selected_model") or vm["MAE_kW"].idxmin()
     st.subheader("Next-day hourly demand forecast (RQ2)")
+    if floor == ALL:
+        st.caption("Building demand = sum of the floor totals. 'Each floor's validation-selected model' adds up the model "
+                   "each floor chose on Apr–Jun 2019 data. Peak-hour error uses the top 10 % of test hours.")
     st.caption(f"Model chosen on Apr–Jun 2019 validation: **{MODEL_LABELS.get(selected_model, selected_model)}**. "
                "Test period Jul–Dec 2019. M5/M6 use observed Open-Meteo weather as a stand-in for a weather forecast, "
                "so their errors are optimistic.")
     tm.insert(0, "Model", tm.index.map(lambda m: MODEL_LABELS.get(m, m)))
     tm["Validation MAE_kW"] = vm["MAE_kW"].reindex(tm.index)
-    st.dataframe(tm[["Model", "Validation MAE_kW", "MAE_kW", "RMSE_kW", "NMBE_pct", "CV_RMSE_pct", "peak_hour_MAE_kW", "hours"]]
+    # The building has no validation run of its own, so its table omits that column
+    st.dataframe(tm[(["Model"] if floor == ALL else ["Model", "Validation MAE_kW"]) + ["MAE_kW", "RMSE_kW", "NMBE_pct", "CV_RMSE_pct", "peak_hour_MAE_kW", "hours"]]
                  .round(2), hide_index=True, width="stretch")
 
     models = [c for c in fc.columns if c != "floor_kW"]
@@ -687,7 +756,7 @@ with tab_compare:
     st.subheader("Same unit, different floors")
     positions = sorted({position_of(u) for u in mean_kw})
     pc1, pc2 = st.columns([1, 2])
-    pos = pc1.selectbox("Unit position", positions, format_func=lambda p: unit_label(f"F0_{p}"))
+    pos = pc1.selectbox("Unit position", positions, format_func=lambda p: unit_label(f"F0_{p}", with_floor=False))
     day_type = pc2.radio("Days", ["Weekdays", "Saturdays", "Sundays"], horizontal=True)
     times = [f"{s // 4:02d}:{(s % 4) * 15:02d}" for s in range(96)]
     fig = go.Figure()
