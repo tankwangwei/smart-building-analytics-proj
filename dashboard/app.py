@@ -33,7 +33,7 @@ MODEL_LABELS = {"M0 yesterday": "Same hour yesterday", "M0 last week": "Same hou
                 "M3 regression with lags": "Regression + past demand", "M4 Random Forest": "Random Forest",
                 "M5 regression + weather": "Regression + past demand + weather",
                 "M6 Random Forest + weather": "Random Forest + weather",
-                "Selected per floor": "Each floor's validation-selected model"}
+                "Selected per floor": "Best method per floor (combined)"}
 
 st.set_page_config(page_title="Building AC Dashboard", page_icon="❄️", layout="wide")
 # Compact dashboard spacing: smaller headings and metrics, tighter gaps between blocks
@@ -118,6 +118,7 @@ def load_building():
     # Only the combination of each floor's validation choice is "selected" for the building
     data["validation_metrics"] = pd.DataFrame({"MAE_kW": [np.nan]}, index=["Selected per floor"])
     data["selected_model"] = "Selected per floor"
+    data["chosen_per_floor"] = chosen
     data["next24"] = pd.DataFrame({"predicted_kW": sum(p["next24"]["predicted_kW"] for p in parts.values()),
                                    "method": "Selected per floor"})
 
@@ -673,8 +674,10 @@ with tab_forecast:
                      "The ✓ method is the one to use: it was chosen on earlier data (Apr–Jun 2019) before this "
                      "test, which is the fair way to pick one. ")
     if floor == ALL:
-        forecast_help += ("For the whole building, 'Each floor's validation-selected model' adds up the method each "
-                          "floor chose. ")
+        forecast_help += ("For the whole building, 'Best method per floor (combined)' forecasts each floor with its "
+                          "own chosen method and adds them up: "
+                          + "; ".join(f"Floor {f}: {MODEL_LABELS.get(m, m)}" for f, m in data["chosen_per_floor"].items())
+                          + ". ")
     forecast_help += ("Peak-hour error = average error in the busiest 10 % of hours. Bias: + means it predicts too "
                       "high on average, − too low. Methods with weather use observed Open-Meteo weather in place of a "
                       "weather forecast, so their errors are optimistic.")
