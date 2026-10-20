@@ -7,7 +7,7 @@
 
 The sidebar **View** opens on **Whole building** (Floors 3, 4, 5 and 7 combined); pick a single floor to focus on it. Tabs:
 - **Overview**: KPIs, top units/events to review, next-day forecast, comfort check.
-- **Priority list**: units and events ranked by excess kWh × after-hours × hot-day weighting, with filters, CSV export, a weekly drill-down and a heatmap.
+- **Priority list**: units and events ranked by excess kWh (after-hours waste counts 1.5×, hot-day waste 0.5×), with filters, CSV export, a weekly drill-down and a heatmap.
 - **Threshold tuner**: sweeps one rule parameter and shows how flags change, with an elbow suggestion.
 - **Setpoint & schedule simulator**: estimates kWh/THB saved and comfort compliance for a new setpoint and AC operating window, and recommends a setpoint.
 - **Compare floors**: building-wide summary and priority list, each unit vs the same unit on other floors, and daily profiles side by side.

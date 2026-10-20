@@ -249,22 +249,23 @@ with st.sidebar:
     st.caption("These settings drive the priority list, heatmap and overview. The notebook defaults are "
                "k = 1.5, 0.5 kW and 8 intervals (2 h).")
     k_iqr = st.slider("Statistical rule: IQR multiplier k", 0.5, 5.0, 1.5, 0.25,
-                      help="Flag when power > Q3 + k·IQR for that 15-minute slot and weekday (baseline).")
+                      help="How far above the normal range power must go to count as 'unusually high' for that "
+                           "time of day and weekday. A higher k means only extreme spikes get flagged. Default 1.5.")
     k_res = st.slider("Persistence rule: residual IQR multiplier", 0.5, 5.0, 1.5, 0.25,
-                      help="Residual = actual − expected. Flag when it stays above Q3 + k·IQR of baseline residuals.")
+                      help="How far above the expected power a unit must be to count as 'running high'. "
+                           "A higher value means only larger, sustained overuse gets flagged. Default 1.5.")
     persist = st.slider("Persistence: minimum consecutive 15-min intervals", 1, 24, 8,
-                        help="8 intervals = 2 hours")
+                        help="How long a unit must stay high before it's flagged. "
+                             "8 intervals × 15 minutes = 2 hours. Default 8.")
     on_kw = st.slider("'Running' threshold (kW)", 0.1, 5.0, 0.5, 0.1,
-                      help="Power must exceed this for any flag; also used as the on/off cut-off.")
-    st.markdown("**Rules enabled**")
-    use_stat = st.checkbox("Unusually high for time slot", True)
-    use_after = st.checkbox("After-hours operation", True)
-    use_persist = st.checkbox("Persistent deviation", True)
-    st.header("Priority weighting")
-    after_weight = st.slider("After-hours multiplier", 1.0, 3.0, 1.5, 0.1,
-                             help="After-hours waste is usually the easiest to act on (schedule fix).")
-    hot_weight = st.slider("Hot-day multiplier", 0.0, 1.0, 0.5, 0.1,
-                           help="Down-weight events on hot days: higher demand is partly explained by weather.")
+                      help="Below this power the unit counts as 'off', and nothing below it is ever flagged. "
+                           "Default 0.5 kW.")
+
+# All three flagging rules are always on, and priorities use fixed weights:
+# after-hours waste counts 1.5x (usually a quick timer fix), hot-day waste counts 0.5x (partly weather-driven).
+use_stat = use_after = use_persist = True
+AFTER_HOURS_WEIGHT, HOT_DAY_WEIGHT = 1.5, 0.5
+after_weight, hot_weight = AFTER_HOURS_WEIGHT, HOT_DAY_WEIGHT
 
 d = flags_for(floor, k_iqr, k_res, on_kw, persist, use_stat, use_after, use_persist)
 events = build_events(d, hot_weight, after_weight)
@@ -339,7 +340,7 @@ with tab_overview:
 # ================================================================ priority list
 with tab_priority:
     st.subheader("Unit priority list")
-    st.caption("Priority score = Σ events of excess kWh × after-hours multiplier × hot-day multiplier (sidebar). "
+    st.caption("Priority score = Σ events of excess kWh, counted 1.5× when after hours (usually a quick timer fix) and 0.5× on unusually hot days (partly weather-driven). "
                "Ranked by score; use it to decide which unit to inspect first.")
     st.dataframe(priority, hide_index=True, width="stretch", column_config={
         "priority_score": st.column_config.ProgressColumn("Priority score", format="%.0f", min_value=0,
@@ -667,7 +668,7 @@ with tab_forecast:
 with tab_compare:
     st.subheader("How do the floors compare?")
     st.caption("Floors 3, 4, 5 and 7 share the same AC layout, so units in the same position can be compared directly. "
-               "The sidebar thresholds and priority weights apply to every floor. Equal layout does not prove equal "
+               "The sidebar thresholds apply to every floor. Equal layout does not prove equal "
                "occupancy or equipment condition: treat differences as questions for the facilities team, not verdicts.")
     floor_colour = {f: UNIT_COLOURS[i % len(UNIT_COLOURS)] for i, f in enumerate(FLOORS)}
 
