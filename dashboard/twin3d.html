@@ -238,7 +238,7 @@ for (let f = 1; f <= 7; f++) {
   const analysed = P.analysed.includes(f);
   const h = info.height;
 
-  const slab = new THREE.Mesh(slabGeo, track(f, new THREE.MeshStandardMaterial({ color: "#d9d2c5", roughness: 0.85, transparent: true, opacity: 1 })));
+  const slab = new THREE.Mesh(slabGeo, track(f, new THREE.MeshStandardMaterial({ color: "#4d535c", roughness: 0.85, transparent: true, opacity: 1 })));
   slab.castShadow = slab.receiveShadow = true;
   group.add(slab);
 
@@ -332,7 +332,7 @@ const roof = new THREE.Group();
 roof.position.y = roofY;
 scene.add(roof);
 floors[8] = { group: roof, base: roofY, height: 0, mats: [] };
-const roofSlab = new THREE.Mesh(slabGeo, track(8, new THREE.MeshStandardMaterial({ color: "#cfc7b9", roughness: 0.9, transparent: true, opacity: 1 })));
+const roofSlab = new THREE.Mesh(slabGeo, track(8, new THREE.MeshStandardMaterial({ color: "#555b64", roughness: 0.9, transparent: true, opacity: 1 })));
 roofSlab.castShadow = roofSlab.receiveShadow = true;
 roof.add(roofSlab);
 const pvMat = track(8, new THREE.MeshStandardMaterial({ color: "#1b3358", metalness: 0.6, roughness: 0.25, emissive: "#081426", transparent: true, opacity: 1 }));
@@ -348,7 +348,7 @@ pv.count = pi;
 pv.castShadow = true;
 roof.add(pv);
 for (const [x0, x1, y0, y1, hh] of [[24.7, 31.7, 0.5, 12, 3.2], [0.3, 4.5, 4, 29, 2.4], [W - 4.5, W - 0.3, 4, 29, 2.4]]) {
-  const ph = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, hh, y1 - y0), track(8, new THREE.MeshStandardMaterial({ color: "#d6cdbd", roughness: 0.8, transparent: true, opacity: 1 })));
+  const ph = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, hh, y1 - y0), track(8, new THREE.MeshStandardMaterial({ color: "#5f656e", roughness: 0.8, transparent: true, opacity: 1 })));
   ph.position.set(toX((x0 + x1) / 2), SLAB + hh / 2, toZ((y0 + y1) / 2));
   ph.castShadow = true;
   roof.add(ph);
@@ -530,7 +530,7 @@ function applyOpacity() {
     const visible = state.floor === "all" || Number(f) === state.floor;
     for (const mat of fl.mats) {
       let o = mat.userData.baseOpacity ?? 1;
-      if (state.xray && (mat.isMeshPhysicalMaterial || (mat.isMeshStandardMaterial && mat.color.getHexString() === "d9d2c5"))) o *= 0.25;
+      if (state.xray && (mat.isMeshPhysicalMaterial || (mat.isMeshStandardMaterial && mat.color.getHexString() === "4d535c"))) o *= 0.25;
       if (!visible) o *= state.floor === "all" ? 1 : 0.07;
       mat.opacity = o;
       mat.transparent = o < 1 || mat.isMeshPhysicalMaterial || mat.isLineBasicMaterial;
@@ -559,7 +559,8 @@ for (const f of ["all", ...P.analysed]) {
 // ---------------------------------------------------------------- lights
 // Off below 0.2 kW. Brightness rises with the zone's lighting kW (full at 4 kW); zones above about 3.6 kW exceed
 // the bloom threshold and visibly glow.
-const WARM = new THREE.Color(1.0, 0.82, 0.55), DARK = new THREE.Color("#1a1e27"), EDGE = new THREE.Color("#9cc4ff");
+// Yellow tint, so a lit strip never reads as concrete
+const WARM = new THREE.Color(1.0, 0.85, 0.3), DARK = new THREE.Color("#1a1e27"), EDGE = new THREE.Color("#9cc4ff");
 function applyLights() {
   const on = $("t-lights").checked;
   for (const { floor: f, zone: z, mesh } of lightPanels) {
