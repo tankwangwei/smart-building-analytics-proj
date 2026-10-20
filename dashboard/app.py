@@ -296,7 +296,10 @@ with tab_overview:
 
     left, right = st.columns([3, 2])
     with left:
-        st.subheader("Review these units first")
+        st.subheader("Review these units first",
+                     help="Priority score = each unit's estimated excess kWh during flagged periods, where after-hours "
+                          "waste counts 1.5× (usually a quick timer fix) and waste on unusually hot days counts 0.5× "
+                          "(partly explained by the weather). Higher score = inspect first.")
         show = priority[["rank", "AC unit", "priority_score", "flagged_excess_kWh", "events",
                          "after_hours_flagged_h", "flagged_pct"]]
         st.dataframe(show, hide_index=True, width="stretch", column_config={
@@ -306,19 +309,8 @@ with tab_overview:
             "events": st.column_config.NumberColumn("Events"),
             "after_hours_flagged_h": st.column_config.NumberColumn("After-hours flagged (h)", format="%.1f"),
             "flagged_pct": st.column_config.NumberColumn("Flagged %", format="%.1f%%")})
-        st.subheader("Top 5 events")
-        if len(events):
-            top = events.head(5).copy()
-            top["AC unit"] = top["unit"].map(unit_label)
-            st.dataframe(top[["AC unit", "start", "duration_h", "peak_kW", "excess_kWh", "reason"]],
-                         hide_index=True, width="stretch", column_config={
-                             "start": st.column_config.DatetimeColumn("Start", format="ddd D MMM YYYY, HH:mm"),
-                             "duration_h": st.column_config.NumberColumn("Hours", format="%.2f"),
-                             "peak_kW": st.column_config.NumberColumn("Peak kW", format="%.1f"),
-                             "excess_kWh": st.column_config.NumberColumn("Excess kWh", format="%.1f")})
     with right:
-        st.subheader("Next-day forecast (demo: day after dataset)" if floor != ALL
-                     else "Next-day building forecast (demo: day after dataset)")
+        st.subheader("Next-day forecast" if floor != ALL else "Next-day building forecast")
         n24 = data["next24"]
         fig = go.Figure(go.Scatter(x=n24.index, y=n24["predicted_kW"], mode="lines+markers",
                                    line=dict(color=ACTUAL, width=2), marker=dict(size=8), name="Forecast"))
@@ -328,7 +320,7 @@ with tab_overview:
         st.plotly_chart(style(fig, 300, "kW"), width="stretch")
         st.caption(f"Method: {MODEL_LABELS.get(n24['method'].iloc[0], n24['method'].iloc[0])} · "
                    f"predicted daily energy {n24['predicted_kW'].sum():,.0f} kWh · holidays are not modelled.")
-        st.subheader("Comfort while running (reporting period)")
+        st.subheader("Comfort Level")
         comfort = sens[["median_indoor_temp_C_running", "pct_running_hours_in_comfort_band", "pct_running_hours_in_RH_band"]].copy()
         comfort.index = comfort.index.map(unit_label)
         comfort.columns = ["Median indoor °C", "% hours 23–26 °C", "% hours RH 40–60%"]
