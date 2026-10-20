@@ -70,6 +70,10 @@ def to_bool(series):
                                                "1.0": True, "0.0": False})
 
 
+def _r_or_none(value, digits=1):
+    return None if value is None or pd.isna(value) else round(float(value), digits)
+
+
 def table_height(rows, cap):
     """Natural height of a table with this many rows, capped so long tables scroll instead of growing the page."""
     return min((rows + 1) * 35 + 3, cap)
@@ -155,7 +159,10 @@ def load_floor(floor):
             "validation_metrics": pd.read_csv(OUT / "forecast_validation_metrics.csv", index_col=0),
             "next24": pd.read_csv(OUT / "next_24_hours_forecast.csv", index_col=0, parse_dates=True),
             "weather": pd.read_csv(OUT / "weather_hourly_local.csv", index_col=0, parse_dates=True),
-            "floor_kpis": pd.read_csv(OUT / "floor_reporting_15min_kpis.csv", index_col=0).iloc[:, 0]}
+            "floor_kpis": pd.read_csv(OUT / "floor_reporting_15min_kpis.csv", index_col=0).iloc[:, 0],
+            # lighting, plug and lux per zone (15-minute, reporting period) for the digital twin
+            "zone_loads": (pd.read_csv(OUT / "zone_loads_15min.csv", index_col=0, parse_dates=True)
+                           if (OUT / "zone_loads_15min.csv").exists() else None)}
     return data
 
 
@@ -358,133 +365,49 @@ with tab_overview:
 
 # ================================================================ digital twin
 with tab_twin:
-    BLUE_RAMP = ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"]
-    TEMP_SCALE = [[0, "#2a78d6"], [0.38, "#9ec5f4"], [0.46, "#e7e3dc"], [0.62, "#e7e3dc"], [0.72, "#f2a6a5"], [1, "#c23a3a"]]
-    PEER_SCALE = [[0, "#2a78d6"], [0.5, "#e7e3dc"], [1, "#c23a3a"]]
-    STATUS_COLOURS = {"off": "#bdb7ad", "running": "#1baf7a", "flagged": "#e34948"}
     twin_floors = FLOORS if floor == ALL else [floor]
+    c_head, c_date, c_days = st.columns([3, 1, 1], vertical_alignment="bottom")
+    c_head.subheader("Digital twin", help="Interactive 3D model of Chamchuri 5, traced from the CU-BEMS paper's floor plan "
+                                          "(Floors 3–7) and building view. Drag to rotate, right-drag to pan, scroll to zoom. "
+                                          "Hover a zone for live readings; click it to fly there and open its detail panel. "
+                                          "Press play (or Space) to replay the selected days; the sun follows its real path "
+                                          "over Bangkok. Schematic to scale, not a surveyed model.")
+    twin_start = c_date.date_input("From", pd.Timestamp("2019-07-22").date(), min_value=detail["Date"].min().date(),
+                                   max_value=detail["Date"].max().date(), format="DD/MM/YYYY", key="twin_start")
+    twin_days = c_days.selectbox("Days to load", [1, 3, 7], index=2, key="twin_days")
+    twin_days = min(twin_days, (detail["Date"].max().normalize() - pd.Timestamp(twin_start)).days + 1)
 
-    def zone_of(unit):
-        return int(re.search(r"_z(\d+)_", unit)[1])
-
-    def colour_for(value, scale, vmin, vmax):
-        from plotly.colors import sample_colorscale
-        if value is None or not np.isfinite(value):
-            return "#d9d4cc"
-        t = min(max((value - vmin) / (vmax - vmin), 0), 1) if vmax > vmin else 0.5
-        if isinstance(scale[0], str):
-            scale = [[i / (len(scale) - 1), c] for i, c in enumerate(scale)]
-        return sample_colorscale(scale, [t])[0]
-
-    c_mode, c_metric, c_date, c_time = st.columns([1.3, 1.6, 1, 2], vertical_alignment="bottom")
-    with c_mode:
-        st.subheader("Digital twin", help="3D model of Chamchuri 5 traced from the CU-BEMS paper's floor plan (Floors 3–7) "
-                                          "and building view. Coloured zones are the analysed floors; Zone 3 is the stair "
-                                          "core with no AC. Drag to rotate, scroll to zoom, hover a zone for details. "
-                                          "Schematic to scale, not a surveyed model.")
-        mode = st.radio("Show", ["A moment", "Jul–Dec 2019"], horizontal=True, key="twin_mode", label_visibility="collapsed")
-    if mode == "A moment":
-        metric = c_metric.selectbox("Colour zones by", ["Anomaly status", "AC power (kW)", "Indoor temperature (°C)"],
-                                    key="twin_metric_moment")
-        day = c_date.date_input("Date", pd.Timestamp("2019-07-22").date(), min_value=detail["Date"].min().date(),
-                                max_value=detail["Date"].max().date(), format="DD/MM/YYYY", key="twin_date")
-        slot = c_time.select_slider("Time", [f"{h:02d}:{m:02d}" for h in range(24) for m in (0, 15, 30, 45)],
-                                    value="14:00", key="twin_time")
-        moment = pd.Timestamp(f"{day} {slot}")
-    else:
-        metric = c_metric.selectbox("Colour zones by", ["Excess kWh (est.)", "Priority score", "Median indoor °C (running)",
-                                                        "% running time 23–26 °C", "Power vs same unit on other floors (%)"],
-                                    key="twin_metric_period")
-        c_date.caption("Whole reporting period")
-
-    zone_styles, rows = {}, []
-    peer_mean = {}
-    if mode != "A moment" and metric.startswith("Power vs"):
-        for f in FLOORS:
-            fd_ = flags_for(f, k_iqr, k_res, on_kw, persist, use_stat, use_after, use_persist)
-            for u, part in fd_.loc[fd_["eligible"]].groupby("unit"):
-                peer_mean[u] = part["actual_kW"].mean()
-    for f in twin_floors:
+    # Jul-Dec summaries per unit, with the same rules as the Priority list and Compare floors tabs
+    twin_details, twin_loads, summaries, peer_mean = {}, {}, {}, {}
+    for f in FLOORS:
         fd = flags_for(f, k_iqr, k_res, on_kw, persist, use_stat, use_after, use_persist)
-        fsens = load(f)["sensitivity"]
-        fpr = unit_priority(fd, build_events(fd, hot_weight, after_weight))
-        for u in dict.fromkeys(fd["unit"]):
-            zone = zone_of(u)
-            label = f"<b>Floor {f} · Zone {zone}</b> · AC{u.split('_AC')[1].replace('(kW)', '')}"
-            if zone == 1:
-                label += "<br>(4 units in this zone; AC4 is the main one)"
-            if mode == "A moment":
-                row = fd.loc[fd["unit"].eq(u) & fd["Date"].eq(moment)]
-                if row.empty or pd.isna(row["actual_kW"].iloc[0]):
-                    zone_styles[(f, zone)] = {"color": "#d9d4cc", "hover": label + "<br>No reading at this time"}
-                    continue
-                r = row.iloc[0]
-                status = "flagged" if r["flagged"] else ("running" if r["actual_kW"] > on_kw else "off")
-                rule = ", ".join(n for n, c in [("unusually high", r["statistical"]), ("after hours", r["after_hours"]),
-                                                ("persistent", r["persistent"])] if c)
-                hover = (f"{label}<br>AC power: {r['actual_kW']:.1f} kW (expected {r['expected_kW']:.1f})"
-                         f"<br>Indoor: {r['indoor_temp_C']:.1f} °C · outdoor {r['outdoor_temp_C']:.1f} °C"
-                         f"<br>Status: {status}{' (' + rule + ')' if rule else ''}")
-                rows.append({"floor": f, "zone": zone, "kW": r["actual_kW"], "status": status,
-                             "outdoor": r["outdoor_temp_C"]})
-                if metric == "Anomaly status":
-                    colour = STATUS_COLOURS[status]
-                elif metric.startswith("AC power"):
-                    colour = colour_for(r["actual_kW"], BLUE_RAMP, 0, 40)
-                else:
-                    colour = colour_for(r["indoor_temp_C"], TEMP_SCALE, 18, 31)
-            else:
-                values = {"Excess kWh (est.)": fpr.loc[u, "flagged_excess_kWh"],
-                          "Priority score": fpr.loc[u, "priority_score"],
-                          "Median indoor °C (running)": fsens.loc[u, "median_indoor_temp_C_running"],
-                          "% running time 23–26 °C": fsens.loc[u, "pct_running_hours_in_comfort_band"]}
-                if metric.startswith("Power vs"):
-                    peers = [v for p, v in peer_mean.items() if position_of(p) == position_of(u) and p != u]
-                    values[metric] = 100 * (peer_mean[u] / np.median(peers) - 1) if peers else np.nan
-                value = values[metric]
-                scale, vmin, vmax = {"Excess kWh (est.)": (BLUE_RAMP, 0, 6000), "Priority score": (BLUE_RAMP, 0, 6000),
-                                     "Median indoor °C (running)": (TEMP_SCALE, 18, 31),
-                                     "% running time 23–26 °C": (BLUE_RAMP, 0, 100)}.get(metric, (PEER_SCALE, -80, 80))
-                colour = colour_for(value, scale, vmin, vmax)
-                hover = (f"{label}<br>{metric}: {value:,.1f}<br>Excess kWh: {fpr.loc[u, 'flagged_excess_kWh']:,.0f} · "
-                         f"priority rank {int(fpr.loc[u, 'rank'])} on this floor"
-                         f"<br>Median indoor (running): {fsens.loc[u, 'median_indoor_temp_C_running']:.1f} °C")
-            zone_styles[(f, zone)] = {"color": colour, "hover": hover}
+        for u, part in fd.loc[fd["eligible"]].groupby("unit"):
+            peer_mean[u] = part["actual_kW"].mean()
+        if f in twin_floors:
+            twin_details[f] = fd
+            twin_loads[f] = load(f)["zone_loads"]
+            fpr = unit_priority(fd, build_events(fd, hot_weight, after_weight))
+            fsens = load(f)["sensitivity"]
+            for u in fpr.index:
+                summaries[u] = {"excess": _r_or_none(fpr.loc[u, "flagged_excess_kWh"]),
+                                "priority": _r_or_none(fpr.loc[u, "priority_score"]),
+                                "rank": int(fpr.loc[u, "rank"]), "of": len(fpr),
+                                "median": _r_or_none(fsens["median_indoor_temp_C_running"].get(u)),
+                                "comfort": _r_or_none(fsens["pct_running_hours_in_comfort_band"].get(u))}
+    for u in summaries:
+        peers = [v for p, v in peer_mean.items() if position_of(p) == position_of(u) and p != u]
+        summaries[u]["peers"] = _r_or_none(100 * (peer_mean[u] / np.median(peers) - 1)) if peers else None
 
-    if mode == "A moment":
-        colorbar = (None if metric == "Anomaly status" else
-                    {"colorscale": [[i / 6, c] for i, c in enumerate(BLUE_RAMP)], "cmin": 0, "cmax": 40, "title": "kW"}
-                    if metric.startswith("AC power") else
-                    {"colorscale": TEMP_SCALE, "cmin": 18, "cmax": 31, "title": "°C"})
+    twin_data = twin.payload(twin_details, twin_loads, summaries, twin_floors, pd.Timestamp(twin_start), twin_days,
+                             on_kw, SCOPE_NAME)
+    if hasattr(st, "iframe"):  # st.components.v1.html is deprecated in newer Streamlit
+        st.iframe(twin.html(twin_data), height=760)
     else:
-        colorbar = {"colorscale": PEER_SCALE if metric.startswith("Power vs") else
-                    TEMP_SCALE if "°C" in metric and "Median" in metric else [[i / 6, c] for i, c in enumerate(BLUE_RAMP)],
-                    "cmin": -80 if metric.startswith("Power vs") else 18 if "Median" in metric else 0,
-                    "cmax": 80 if metric.startswith("Power vs") else 31 if "Median" in metric else
-                    100 if "%" in metric else 6000,
-                    "title": {"Excess kWh (est.)": "kWh", "Priority score": "score", "% running time 23–26 °C": "%",
-                              "Median indoor °C (running)": "°C"}.get(metric, "%")}
-
-    view, side = st.columns([4, 1])
-    with view:
-        st.plotly_chart(twin.building_figure(zone_styles, twin_floors, colorbar=colorbar, height=600), width="stretch",
-                        key="twin_chart")
-    with side:
-        if mode == "A moment" and rows:
-            snap = pd.DataFrame(rows)
-            st.metric("AC load now", f"{snap['kW'].sum():,.1f} kW", help="Sum of the analysed units at this moment")
-            st.metric("Units running", f"{int(snap['status'].ne('off').sum())} of {len(snap)}")
-            st.metric("Units flagged", f"{int(snap['status'].eq('flagged').sum())}")
-            st.metric("Outdoor", f"{snap['outdoor'].mean():.1f} °C")
-            st.caption(f"{moment:%a %d %b %Y, %H:%M}")
-        if metric == "Anomaly status" and mode == "A moment":
-            st.markdown("<span style='color:#e34948'>■</span> flagged &nbsp; <span style='color:#1baf7a'>■</span> running "
-                        "normally &nbsp; <span style='color:#bdb7ad'>■</span> off", unsafe_allow_html=True)
-        elif "°C" in metric:
-            st.caption("Blue = colder than the 23–26 °C comfort band, grey = inside it, red = warmer.")
-        elif metric.startswith("Power vs"):
-            st.caption("Red = draws more than the same unit on the other floors, blue = less.")
-        st.caption("Grey see-through floors (1, 2, 6) are outside this analysis. Zone 3 is the stair core (no AC).")
+        import streamlit.components.v1 as components
+        components.html(twin.html(twin_data), height=760)
+    st.caption("Zone colours, airflow and glow come from the 15-minute data. Lights count as 'after hours' when a zone's "
+               f"lighting is above {twin.LIGHT_ON_KW} kW while every AC unit on that floor is normally off (stairwells excluded). "
+               "Floors 1, 2 and 6 are shown for context but are not in this analysis.")
 
 # ================================================================ priority list
 with tab_priority:

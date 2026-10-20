@@ -1,10 +1,16 @@
-"""3D model of Chamchuri 5 for the dashboard's digital-twin view.
+"""Interactive 3D digital twin of Chamchuri 5 (three.js scene embedded in the dashboard).
 
 Geometry is traced from the CU-BEMS paper (Pipattanasomporn et al., Scientific Data 2020): Fig. 2 gives the
-Floors 3-7 plan with Zones 1-5, Fig. 1 the 7-storey massing with a taller ground floor and rooftop PV.
-It is a schematic to scale (about 52 x 33 m per floor, ~11,700 m2 in total), not a surveyed BIM model.
+Floors 3-7 plan with Zones 1-5 and the sensor positions, Fig. 1 the 7-storey massing with balcony bands, a
+taller ground floor and rooftop PV. It is a schematic to scale (about 52 x 33 m per floor, ~11,700 m2 in
+total), not a surveyed BIM model.
 """
-import plotly.graph_objects as go
+import json
+import re
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
 
 # Plan of Floors 3-7 in pixels of the paper's Fig. 2 (x to the right, y downwards), as axis-aligned rectangles.
 PX_TO_M = 0.1405  # 370 px across the plan = 52 m
@@ -17,11 +23,13 @@ ZONE_RECTS = {
     4: [(445, 575, 185, 258), (445, 520, 258, 282), (520, 608, 258, 305)],    # top left, L-shaped
     5: [(445, 520, 282, 418)],                                                # bottom left
 }
-FOOTPRINT = [(425, 795, 185, 418)]
+SENSORS_PX = {1: (718, 231), 2: (711, 349), 4: (480, 226), 5: (482, 341)}     # red dots in Fig. 2
+AC_UNITS_PX = {1: [(600, 220), (650, 220), (700, 220), (750, 220)], 2: [(715, 380)], 4: [(510, 215)], 5: [(482, 380)]}
+FOOTPRINT_PX = (425, 795, 185, 418)
 FLOOR_COUNT = 7
-GROUND_HEIGHT, STOREY_HEIGHT, SLAB = 4.5, 3.8, 0.35
+GROUND_HEIGHT, STOREY_HEIGHT = 4.5, 3.8
 GAP = 0.25  # visual gap between neighbouring zones, metres
-OVERHANG = -0.9  # slabs project past the facade like the balcony bands in Fig. 1 (negative gap = larger)
+TEMPLATE = Path(__file__).with_name("twin3d.html")
 
 
 def floor_base(floor):
@@ -32,81 +40,77 @@ def floor_height(floor):
     return GROUND_HEIGHT if floor == 1 else STOREY_HEIGHT
 
 
-def _to_m(x0, x1, y0, y1, gap=GAP):
-    """Pixel rectangle -> metres, with y flipped so the plan's top edge is the building's far side."""
-    return ((x0 - PLAN_X0) * PX_TO_M + gap, (x1 - PLAN_X0) * PX_TO_M - gap,
-            (PLAN_Y0 + PLAN_H - y1) * PX_TO_M + gap, (PLAN_Y0 + PLAN_H - y0) * PX_TO_M - gap)
+def _pt(x, y):
+    """Plan pixel -> metres (x along the building, y across it; the plan's top edge is the far side)."""
+    return round((x - PLAN_X0) * PX_TO_M, 2), round((PLAN_Y0 + PLAN_H - y) * PX_TO_M, 2)
 
 
-def _boxes(rects, z0, z1, gap=GAP):
-    """Vertices and triangles for a set of boxes, merged into one mesh."""
-    xs, ys, zs, i, j, k = [], [], [], [], [], []
-    faces = [(0, 1, 2), (0, 2, 3), (4, 5, 6), (4, 6, 7), (0, 1, 5), (0, 5, 4),
-             (1, 2, 6), (1, 6, 5), (2, 3, 7), (2, 7, 6), (3, 0, 4), (3, 4, 7)]
-    for rect in rects:
-        x0, x1, y0, y1 = _to_m(*rect, gap=gap)
-        base = len(xs)
-        for z in (z0, z1):
-            xs += [x0, x1, x1, x0]
-            ys += [y0, y0, y1, y1]
-            zs += [z, z, z, z]
-        for a, b, c in faces:
-            i.append(base + a)
-            j.append(base + b)
-            k.append(base + c)
-    return dict(x=xs, y=ys, z=zs, i=i, j=j, k=k)
+def _rect(x0, x1, y0, y1, gap=GAP):
+    ax, ay = _pt(x0, y1)
+    bx, by = _pt(x1, y0)
+    return [round(ax + gap, 2), round(bx - gap, 2), round(ay + gap, 2), round(by - gap, 2)]
 
 
-def zone_centre(zone, floor):
-    """A point inside the zone's largest rectangle, at mid-storey height (used for labels)."""
-    x0, x1, y0, y1 = _to_m(*max(ZONE_RECTS[zone], key=lambda r: (r[1] - r[0]) * (r[3] - r[2])))
-    return (x0 + x1) / 2, (y0 + y1) / 2, floor_base(floor) + floor_height(floor) / 2
+def geometry():
+    return {
+        "footprint": _rect(*FOOTPRINT_PX, gap=0),
+        "zones": {z: [_rect(*r) for r in rects] for z, rects in ZONE_RECTS.items()},
+        "sensors": {z: _pt(*p) for z, p in SENSORS_PX.items()},
+        "acUnits": {z: [_pt(*p) for p in pts] for z, pts in AC_UNITS_PX.items()},
+        "floors": {f: {"base": floor_base(f), "height": floor_height(f)} for f in range(1, FLOOR_COUNT + 1)},
+    }
 
 
-def building_figure(zone_styles, analysed_floors, colorbar=None, height=640):
-    """zone_styles: {(floor, zone): {"color": hex, "hover": html}} for zones to highlight.
-    Other zones on analysed floors and every zone on other floors are drawn as neutral context."""
-    fig = go.Figure()
-    for floor in range(1, FLOOR_COUNT + 1):
-        z0 = floor_base(floor)
-        z1 = z0 + floor_height(floor) - SLAB
-        # floor slab
-        fig.add_trace(go.Mesh3d(**_boxes(FOOTPRINT, z0 - SLAB, z0, gap=OVERHANG), color="#b9b3a8", opacity=1,
-                                flatshading=True, hoverinfo="skip", showlegend=False))
-        if floor not in analysed_floors:
-            fig.add_trace(go.Mesh3d(**_boxes(FOOTPRINT, z0, z1, gap=0.4), color="#cfc8bd", opacity=0.18,
-                                    flatshading=True, hovertemplate=f"Floor {floor}<br>not in this analysis<extra></extra>",
-                                    showlegend=False))
-            continue
-        for zone, rects in ZONE_RECTS.items():
-            style = zone_styles.get((floor, zone))
-            if style is None:  # zone 3 (stairs, no AC) or no data
-                fig.add_trace(go.Mesh3d(**_boxes(rects, z0, z1), color="#d9d4cc", opacity=0.35, flatshading=True,
-                                        hovertemplate=f"Floor {floor} · Zone {zone}<br>"
-                                                      f"{'Stairs and corridor, no AC' if zone == 3 else 'No data'}<extra></extra>",
-                                        showlegend=False))
-                continue
-            fig.add_trace(go.Mesh3d(**_boxes(rects, z0, z1), color=style["color"], opacity=1, flatshading=True,
-                                    hovertemplate=style["hover"] + "<extra></extra>", showlegend=False,
-                                    lighting=dict(ambient=0.75, diffuse=0.5, specular=0.05)))
-    # roof slab and PV array (Fig. 1)
-    roof = floor_base(FLOOR_COUNT) + floor_height(FLOOR_COUNT)
-    fig.add_trace(go.Mesh3d(**_boxes(FOOTPRINT, roof - SLAB, roof, gap=OVERHANG), color="#b9b3a8", flatshading=True,
-                            hoverinfo="skip", showlegend=False))
-    fig.add_trace(go.Mesh3d(**_boxes([(470, 750, 200, 400)], roof, roof + 0.25, gap=0), color="#4a5d78",
-                            flatshading=True, hovertemplate="Rooftop solar PV<extra></extra>", showlegend=False))
-    # floor labels just outside the near long facade, at the left end
-    fig.add_trace(go.Scatter3d(x=[-3.5] * len(analysed_floors), y=[-3.5] * len(analysed_floors),
-                               z=[floor_base(f) + floor_height(f) / 2 for f in analysed_floors], mode="text",
-                               text=[f"<b>Floor {f}</b>" for f in analysed_floors], textposition="middle left",
-                               textfont=dict(size=13, color="#8a8984"), hoverinfo="skip", showlegend=False))
-    if colorbar:  # invisible marker trace that only carries the colour scale legend
-        fig.add_trace(go.Scatter3d(x=[None], y=[None], z=[None], mode="markers", showlegend=False, hoverinfo="skip",
-                                   marker=dict(colorscale=colorbar["colorscale"], cmin=colorbar["cmin"],
-                                               cmax=colorbar["cmax"], color=[colorbar["cmin"]], showscale=True,
-                                               colorbar=dict(title=colorbar["title"], thickness=12, len=0.6))))
-    axis = dict(visible=False, showbackground=False)
-    fig.update_layout(height=height, margin=dict(l=0, r=0, t=0, b=0),
-                      scene=dict(xaxis=axis, yaxis=axis, zaxis=axis, aspectmode="data",
-                                 camera=dict(eye=dict(x=-1.0, y=-1.3, z=0.6), center=dict(x=0, y=0, z=-0.12))))
-    return fig
+def _num(series, digits=2):
+    return [None if pd.isna(v) else round(float(v), digits) for v in series]
+
+
+LIGHT_ON_KW = 0.2
+
+
+def payload(details, zone_loads, summaries, analysed_floors, start, days, running_kw, scope_name):
+    """details: {floor: flagged 15-min AC detail}; zone_loads: {floor: 15-min lighting/plug/lux per zone};
+    summaries: {unit: {...Jul-Dec metrics...}}."""
+    slots = pd.date_range(start, periods=96 * days, freq="15min")
+    units, zones, outdoor = [], [], None
+    for floor in analysed_floors:
+        fd = details[floor]
+        for unit in dict.fromkeys(fd["unit"]):
+            part = fd.loc[fd["unit"].eq(unit)].set_index("Date").reindex(slots)
+            zone = int(re.search(r"_z(\d+)_", unit)[1])
+            running = part["actual_kW"].gt(running_kw)
+            status = np.where(part["flagged"].fillna(False).astype(bool), 2, np.where(running, 1, 0))
+            status = np.where(part["actual_kW"].isna(), -1, status)
+            reason = (part["statistical"].fillna(False).astype(int) + 2 * part["after_hours"].fillna(False).astype(int)
+                      + 4 * part["persistent"].fillna(False).astype(int))
+            if outdoor is None:
+                outdoor = _num(part["outdoor_temp_C"], 1)
+            units.append({"floor": floor, "zone": zone, "unit": unit.replace("(kW)", ""),
+                          "label": f"Floor {floor} · Zone {zone} · AC{unit.split('_AC')[1].replace('(kW)', '')}",
+                          "kw": _num(part["actual_kW"]), "exp": _num(part["expected_kW"]),
+                          "temp": _num(part["indoor_temp_C"], 1), "rh": _num(part["indoor_rh_pct"], 0),
+                          "status": status.astype(int).tolist(), "reason": reason.astype(int).tolist(),
+                          "summary": summaries.get(unit, {})})
+        # "Normally off" for a floor = no AC unit on that floor is scheduled on (unknown schedule counts as on)
+        sched = fd.pivot_table(index="Date", columns="unit", values="schedule_on", aggfunc="first").reindex(slots)
+        floor_off = sched.eq(False).all(axis=1) & sched.notna().any(axis=1)
+        loads = zone_loads.get(floor)
+        if loads is not None:
+            loads = loads.reindex(slots)
+            for zone in range(1, 6):
+                light, plug, lux = (f"z{zone}_Light(kW)", f"z{zone}_Plug(kW)", f"z{zone}_S1(lux)")
+                if light not in loads:
+                    continue
+                zones.append({"floor": floor, "zone": zone, "light": _num(loads[light]), "plug": _num(loads[plug]),
+                              "lux": _num(loads[lux], 0) if lux in loads else None,
+                              # stair lighting (Zone 3) stays on for safety, so it is never "after hours" waste
+                              "offHours": (floor_off.astype(int) * (zone != 3)).tolist()})
+    return {"scope": scope_name, "analysed": analysed_floors, "geometry": geometry(), "zoneLoads": zones,
+            "times": [t.strftime("%Y-%m-%dT%H:%M") for t in slots], "outdoor": outdoor or [],
+            "units": units, "runningKW": running_kw,
+            "startIndex": int(np.argmax(slots.strftime("%H:%M") == "14:00")) if days else 0}
+
+
+def html(data):
+    # "</" inside the JSON would end the <script> block early
+    return TEMPLATE.read_text(encoding="utf-8").replace("__PAYLOAD__", json.dumps(data).replace("</", "<\\/"))
