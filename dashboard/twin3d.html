@@ -169,7 +169,7 @@ controls.autoRotateSpeed = 0.6;
 
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(512, 512), 0.55, 0.35, 3.0);   // only heavily used lights bloom
+const bloom = new UnrealBloomPass(new THREE.Vector2(512, 512), 0.4, 0.35, 3.0);   // only heavily used lights bloom
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
 
@@ -557,7 +557,7 @@ for (const f of ["all", ...P.analysed]) {
 }
 
 // ---------------------------------------------------------------- lights
-// Off below 0.2 kW. Brightness rises with the zone's lighting kW (full at 4 kW); zones above about 3 kW exceed
+// Off below 0.2 kW. Brightness rises with the zone's lighting kW (full at 4 kW); zones above about 3.6 kW exceed
 // the bloom threshold and visibly glow.
 const WARM = new THREE.Color(1.0, 0.82, 0.55), DARK = new THREE.Color("#1a1e27"), EDGE = new THREE.Color("#9cc4ff");
 function applyLights() {
@@ -566,10 +566,10 @@ function applyLights() {
     const light = val(zoneLoad[`${f}-${z}`]?.light, state.i);
     const t = light != null && light >= LIGHT_ON_KW ? Math.min(light / 4, 1) : 0;
     mesh.visible = on;
-    if (t > 0) mesh.material.color.copy(WARM).multiplyScalar(0.8 + 0.8 * t + 3.5 * t * t);   // >3 (about 3 kW+) blooms
+    if (t > 0) mesh.material.color.copy(WARM).multiplyScalar(0.5 + 0.5 * t + 2.3 * t * t);   // >3 (about 3.6 kW+) blooms
     else mesh.material.color.copy(DARK);
     for (const edge of zoneEdges[`${f}-${z}`] || []) {
-      if (on && t > 0) { edge.color.copy(WARM).multiplyScalar(0.6 + 2.2 * t); edge.userData.baseOpacity = 0.35 + 0.5 * t; }
+      if (on && t > 0) { edge.color.copy(WARM).multiplyScalar(0.45 + 1.4 * t); edge.userData.baseOpacity = 0.35 + 0.5 * t; }
       else { edge.color.copy(EDGE); edge.userData.baseOpacity = 0.35; }
     }
   }
