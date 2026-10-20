@@ -376,15 +376,39 @@ with tab_priority:
                            "ac_priority_events.csv", "text/csv")
 
     st.subheader("Inspect a unit")
-    a, b = st.columns([1, 2])
+    a, b, c = st.columns([2, 2, 3])
     unit = a.selectbox("AC unit", priority.index.tolist(), format_func=unit_label, key=f"inspect_unit_{floor}")
     u = d.loc[d["unit"].eq(unit)].set_index("Date")
-    weekly = u["excess_kWh_est"].where(u["flagged"], 0).resample("W-MON", label="left", closed="left").sum()
-    weeks = weekly.index.tolist()
-    default_week = weekly.idxmax() if weekly.max() > 0 else weeks[0]
-    week = b.select_slider("Week starting", options=weeks, value=default_week, key=f"inspect_week_{floor}_{unit}",
-                           format_func=lambda t: f"{t:%d %b %Y}" + (" (most excess)" if t == weekly.idxmax() else ""))
-    view = u.loc[week: week + pd.Timedelta(days=7) - pd.Timedelta(minutes=15)]
+    first_day, last_day = u.index.min().date(), u.index.max().date()
+    # Default: the Monday-to-Sunday week with the most flagged excess energy for this unit
+    daily_excess = u["excess_kWh_est"].where(u["flagged"], 0).resample("D").sum()
+    weekly_excess = daily_excess.groupby(daily_excess.index.to_period("W-SUN")).sum()
+    busiest = weekly_excess.idxmax().start_time.date() if weekly_excess.max() > 0 else first_day
+    period = b.radio("Show", ["Week", "Month", "Custom"], horizontal=True, key=f"inspect_period_{floor}",
+                     help="Week = Monday to Sunday around the date you pick. Month = the calendar month of the date. "
+                          "Custom = any start and end date.")
+    if period == "Custom":
+        picked = c.date_input("From – to", (busiest, min(busiest + pd.Timedelta(days=6), last_day)),
+                              min_value=first_day, max_value=last_day, format="DD/MM/YYYY",
+                              key=f"inspect_range_{floor}_{unit}")
+        # While the user is mid-selection only the start date exists
+        start = pd.Timestamp(picked[0])
+        end = pd.Timestamp(picked[1] if len(picked) > 1 else picked[0]) + pd.Timedelta(days=1)
+    else:
+        day = pd.Timestamp(c.date_input("Any date in the " + period.lower(), busiest, min_value=first_day,
+                                        max_value=last_day, format="DD/MM/YYYY",
+                                        key=f"inspect_date_{floor}_{unit}_{period}",
+                                        help="The default is the week with the most flagged excess energy."))
+        if period == "Week":
+            start = day - pd.Timedelta(days=day.dayofweek)
+            end = start + pd.Timedelta(days=7)
+        else:
+            start = day.replace(day=1)
+            end = start + pd.offsets.MonthBegin(1)
+    end = min(end, pd.Timestamp(last_day) + pd.Timedelta(days=1))  # data ends 31 Dec 2019
+    view = u.loc[start: end - pd.Timedelta(minutes=15)]
+    st.caption(f"Showing {start:%a %d %b %Y} – {end - pd.Timedelta(days=1):%a %d %b %Y} · "
+               f"flagged excess in this period: {view.loc[view['flagged'], 'excess_kWh_est'].sum():,.0f} kWh")
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.72, 0.28], vertical_spacing=0.06)
     fig.add_trace(go.Scatter(x=view.index, y=view["actual_kW"], name="Actual", line=dict(color=ACTUAL, width=2)), 1, 1)
     fig.add_trace(go.Scatter(x=view.index, y=view["expected_kW"], name="Expected", line=dict(color=EXPECTED, width=2, dash="dash")), 1, 1)
