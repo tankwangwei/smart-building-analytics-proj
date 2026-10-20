@@ -548,16 +548,14 @@ with tab_sim:
     comfort_target = c2.slider("Minimum comfort compliance (%)", 30, 100, 70)
     tariff = c2.number_input("Electricity price (THB per kWh)", 0.0, 20.0, 4.2, 0.1,
                              help="Assumption. Change it to your actual tariff.")
-    start_h, stop_h = c3.slider("Weekday AC window", 0.0, 24.0, (7.0, 18.0), 0.25,
-                                format="%.2f h", help="Energy outside this window counts as avoidable.")
+    start_h, stop_h = c3.slider("Weekday AC window", 0.0, 24.0, (0.0, 24.0), 0.25, format="%.2f h",
+                                help="The hours the AC is allowed to run on weekdays. 00:00–24:00 = no change from today. "
+                                     "Narrow it (e.g. 07:00–18:00) and all AC energy used outside the window counts as "
+                                     "saved. This is the maximum possible saving: some after-hours use may be "
+                                     "legitimate (events, cleaning, servers).")
     weekend_on = c4.checkbox("Keep weekends running", True,
-                             help="Ticked: weekends are allowed. Unticked: the proposal is no AC at weekends, so "
-                                  "weekend use counts as avoidable when the schedule change is applied.")
-    apply_schedule = c4.checkbox("Apply schedule change", False,
-                                 help="Unticked: only the setpoint change is counted. Ticked: assumes the AC is switched "
-                                      "off outside the weekday window (and at weekends if unticked above), and counts "
-                                      "all AC energy used at those times as saved. This is the maximum possible saving: "
-                                      "some after-hours use may be legitimate (events, cleaning, servers).")
+                             help="Ticked: weekends are allowed (no change). Unticked: the proposal is no AC at "
+                                  "weekends, so all weekend AC energy counts as saved.")
 
     sim = detail.loc[detail["eligible"] & detail["actual_kW"].notna(),
                      ["Date", "unit", "actual_kW", "indoor_temp_C"]].copy()
@@ -573,7 +571,7 @@ with tab_sim:
     total_kwh = sim["actual_kW"].sum() * INTERVAL_HOURS
 
     def simulate(sp):
-        avoided = sim["running"] & sim["outside_window"] if apply_schedule else pd.Series(False, index=sim.index)
+        avoided = sim["running"] & sim["outside_window"]
         active = sim["running"] & ~avoided & sim["indoor_temp_C"].notna()
         shift = (sp - sim["current_sp"]).where(active, 0)
         setpoint_kwh = np.minimum(sim["slope"] * shift, sim["actual_kW"]).sum() * INTERVAL_HOURS
@@ -615,7 +613,7 @@ with tab_sim:
 
     per_unit = []
     for unit_name, part in sim.groupby("unit"):
-        avoided = part["running"] & part["outside_window"] if apply_schedule else pd.Series(False, index=part.index)
+        avoided = part["running"] & part["outside_window"]
         active = part["running"] & ~avoided & part["indoor_temp_C"].notna()
         shift = (setpoint - part["current_sp"]).where(active, 0)
         sp_unit = np.minimum(part["slope"] * shift, part["actual_kW"]).sum() * INTERVAL_HOURS
