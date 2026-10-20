@@ -689,25 +689,6 @@ with tab_forecast:
             fig.add_trace(go.Scatter(x=view.index, y=view[m], name=MODEL_LABELS.get(m, m), line=dict(color=colour, width=2, dash="dash")))
         st.plotly_chart(style(fig, 300, "AC demand (kW)"), width="stretch")
 
-    c1, c2 = st.columns(2)
-    err_model = picked[0] if picked else selected_model
-    common = fc[["floor_kW", err_model]].dropna()
-    by_hour = (common[err_model] - common["floor_kW"]).abs().groupby(common.index.hour).mean()
-    fig = go.Figure(go.Bar(x=by_hour.index, y=by_hour.values, marker_color=ACTUAL,
-                           hovertemplate="%{x}:00 · MAE %{y:.2f} kW<extra></extra>"))
-    c1.plotly_chart(style(fig, 250, "MAE (kW)", f"Hour of day · {MODEL_LABELS.get(err_model, err_model)}", margin_top=10),
-                    width="stretch")
-
-    w = data["weather"]
-    hourly = fc[["floor_kW"]].join(w)
-    daily = pd.DataFrame({"kWh": hourly["floor_kW"].resample("D").sum(min_count=24),
-                          "temp": hourly.between_time("08:00", "16:59")["outdoor_temp_C"].resample("D").mean()}).dropna()
-    daily = daily.loc[daily.index.dayofweek < 5]
-    fig = go.Figure(go.Scatter(x=daily["temp"], y=daily["kWh"], mode="markers", marker=dict(color=ACTUAL, size=7, opacity=.7),
-                               text=daily.index.strftime("%a %d %b"),
-                               hovertemplate="%{text}<br>%{x:.1f} °C · %{y:,.0f} kWh<extra></extra>", name="Weekday"))
-    c2.plotly_chart(style(fig, 250, "Daily AC energy (kWh)", "Daytime outdoor temperature (°C)", margin_top=10),
-                    width="stretch")
 
 # ================================================================ compare floors
 with tab_compare:

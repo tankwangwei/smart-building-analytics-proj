@@ -11,7 +11,7 @@ The sidebar **View** opens on **Whole building** (Floors 3, 4, 5 and 7 combined)
 - **Threshold tuner**: sweeps one rule parameter and shows how flags change, with an elbow suggestion.
 - **Setpoint & schedule simulator**: estimates kWh/THB saved and comfort compliance for a new setpoint and AC operating window, and recommends a setpoint.
 - **Compare floors**: building-wide summary and priority list, each unit vs the same unit on other floors, and daily profiles side by side.
-- **Forecast**: model comparison (including the weather-aware M5/M6), actual vs forecast by week, error by hour, and weather vs daily energy.
+- **Forecast**: model comparison (including the weather-aware M5/M6), and actual vs forecast for any week.
 
 The sidebar thresholds apply to every tab. The notebook defaults are k = 1.5, 0.5 kW and 8 intervals.
 All figures are screening estimates: flags are not diagnosed faults, and savings need a measured trial.
