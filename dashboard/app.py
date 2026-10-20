@@ -349,12 +349,11 @@ with tab_priority:
     if events.empty:
         st.warning("No events with the current thresholds.")
     else:
-        f1, f2, f3, f4 = st.columns(4)
-        pick_units = f1.multiselect("Units", units, default=units, format_func=unit_label, key=f"event_units_{floor}")
+        f2, f3, f4 = st.columns(3)
         min_hours = f2.number_input("Min duration (h)", 0.0, 48.0, 0.0, 0.25)
         only_after = f3.checkbox("After-hours only")
         hide_hot = f4.checkbox("Hide hot-day events")
-        ev = events.loc[events["unit"].isin(pick_units) & events["duration_h"].ge(min_hours)]
+        ev = events.loc[events["duration_h"].ge(min_hours)]
         if only_after:
             ev = ev.loc[ev["after_hours_h"].gt(0)]
         if hide_hot:
