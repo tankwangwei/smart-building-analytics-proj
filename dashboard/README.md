@@ -7,6 +7,7 @@
 
 The sidebar **View** opens on **Whole building** (Floors 3, 4, 5 and 7 combined); pick a single floor to focus on it. Tabs:
 - **Overview**: KPIs, top units/events to review, next-day forecast, comfort check.
+- **Digital twin**: 3D model of Chamchuri 5 (traced from the CU-BEMS paper's floor plan and building view). Each AC zone is coloured by anomaly status, AC power or indoor temperature at a chosen date and time, or by a Jul–Dec 2019 summary (excess kWh, priority, comfort, power vs the same unit on other floors). Schematic to scale, not a surveyed model.
 - **Priority list**: units and events ranked by excess kWh (after-hours waste counts 1.5×, hot-day waste 0.5×), with filters, CSV export, a weekly drill-down and a heatmap.
 - **Threshold tuner**: sweeps one rule parameter and shows how flags change, with an elbow suggestion.
 - **Setpoint & schedule simulator**: estimates kWh/THB saved and comfort compliance for a new setpoint and AC operating window, and recommends a setpoint.
