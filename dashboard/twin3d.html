@@ -96,7 +96,7 @@
     <label><input type="checkbox" id="t-xray"> X-ray (see-through facade)</label>
     <label><input type="checkbox" id="t-labels" checked> Floor labels</label>
     <label><input type="checkbox" id="t-rotate"> Auto-rotate</label>
-    <div class="row"><button id="reset">Reset view</button><button id="top">Top view</button></div>
+    <div class="row"><button id="reset">Reset view</button></div>
   </div>
   <div id="detail" class="panel"><button id="close">×</button><div id="detail-body"></div><canvas id="spark"></canvas>
     <div class="muted" style="margin-top:4px">Blue = actual AC kW · orange = expected · red = flagged · line = now</div></div>
@@ -713,7 +713,6 @@ function flyTo(pos, target) {
   fly = { t: 0, p0: camera.position.clone(), t0: controls.target.clone(), p1: pos.clone(), t1: target.clone() };
 }
 $("reset").onclick = () => flyTo(HOME.pos, HOME.target);
-$("top").onclick = () => flyTo(new THREE.Vector3(0.01, 95, 0.01), new THREE.Vector3(0, 10, 0));
 
 // ---------------------------------------------------------------- controls wiring
 $("metric").onchange = (e) => { state.metric = e.target.value; renderLegend(); applyColours(); refreshTip(); };
