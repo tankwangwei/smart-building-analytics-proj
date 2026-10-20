@@ -13,6 +13,8 @@ import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
 
+import chatbot
+
 ROOT = Path(os.environ.get("AC_OUTPUT_FOLDER", Path(__file__).resolve().parents[1] / "ac_analysis_outputs"))
 FLOORS = sorted(int(p.name.split("_")[1]) for p in ROOT.glob("floor_*") if (p / "anomaly_15min_detail.csv").exists())
 ALL = "all"  # selector value for the whole-building view
@@ -241,6 +243,56 @@ def unit_priority(d, events):
     table.insert(0, "rank", range(1, len(table) + 1))
     table.insert(1, "AC unit", [unit_label(u) for u in table.index])
     return table
+
+
+def simulate_plan(detail, sens, on_kw, setpoint, band, start_h, stop_h, weekend_on, comfort_target):
+    """Setpoint + schedule what-if on the reporting-period data (shared by the simulator tab and the chatbot)."""
+    slope = sens["kW_per_degC_outdoor"].clip(lower=0)
+    sim = detail.loc[detail["eligible"] & detail["actual_kW"].notna(),
+                     ["Date", "unit", "actual_kW", "indoor_temp_C"]].copy()
+    hour = sim["Date"].dt.hour + sim["Date"].dt.minute / 60
+    weekend = sim["Date"].dt.dayofweek >= 5
+    in_window = hour.ge(start_h) & hour.lt(stop_h)
+    sim["outside_window"] = (~in_window & ~weekend) | (weekend & ~weekend_on)
+    sim["running"] = sim["actual_kW"].gt(on_kw)
+    sim["slope"] = sim["unit"].map(slope).fillna(0)
+    # Each zone's current "effective setpoint" = median indoor temperature while its unit runs
+    current_sp = sim.loc[sim["running"]].groupby("unit")["indoor_temp_C"].median()
+    sim["current_sp"] = sim["unit"].map(current_sp)
+    total_kwh = sim["actual_kW"].sum() * INTERVAL_HOURS
+
+    def simulate(sp, part=sim):
+        avoided = part["running"] & part["outside_window"]
+        active = part["running"] & ~avoided & part["indoor_temp_C"].notna()
+        shift = (sp - part["current_sp"]).where(active, 0)
+        setpoint_kwh = np.minimum(part["slope"] * shift, part["actual_kW"]).sum() * INTERVAL_HOURS
+        schedule_kwh = part.loc[avoided, "actual_kW"].sum() * INTERVAL_HOURS
+        new_temp = part.loc[active, "indoor_temp_C"] + shift.loc[active]
+        comfort = 100 * new_temp.between(*band).mean() if len(new_temp) else np.nan
+        return setpoint_kwh, schedule_kwh, comfort
+
+    running_now = sim["running"] & sim["indoor_temp_C"].notna()
+    comfort_now = 100 * sim.loc[running_now, "indoor_temp_C"].between(*band).mean()
+    sp_kwh, sch_kwh, comfort_new = simulate(setpoint)
+    sp_table = pd.DataFrame([(sp, *simulate(sp)) for sp in np.arange(18.0, 28.01, 0.5)],
+                            columns=["setpoint", "setpoint_kWh", "schedule_kWh", "comfort_pct"])
+    sp_table["total_kWh"] = sp_table["setpoint_kWh"] + sp_table["schedule_kWh"]
+    ok = sp_table.loc[sp_table["comfort_pct"].ge(comfort_target)]
+
+    per_unit = []
+    for unit_name, part in sim.groupby("unit"):
+        sp_unit, sch_unit, _ = simulate(setpoint, part)
+        energy = part["actual_kW"].sum() * INTERVAL_HOURS
+        per_unit.append({"unit": unit_name, "AC energy kWh": energy,
+                         "Median indoor °C (running)": part.loc[part["running"], "indoor_temp_C"].median(),
+                         "kW per °C": slope.get(unit_name, np.nan), "R²": sens["R2"].get(unit_name, np.nan),
+                         "Setpoint saving kWh": sp_unit, "Schedule saving kWh": sch_unit,
+                         "Saving %": 100 * (sp_unit + sch_unit) / energy if energy else np.nan})
+    return {"sp_kwh": sp_kwh, "sch_kwh": sch_kwh, "saved": sp_kwh + sch_kwh, "total_kwh": total_kwh,
+            "comfort_new": comfort_new, "comfort_now": comfort_now,
+            "days": (detail["Date"].max() - detail["Date"].min()).days + 1,
+            "sp_table": sp_table, "best": ok.loc[ok["total_kWh"].idxmax()] if len(ok) else None,
+            "per_unit": pd.DataFrame(per_unit)}
 
 
 # ---------------------------------------------------------------- page
@@ -538,7 +590,6 @@ with tab_tuner:
 # ================================================================ simulator
 with tab_sim:
     sens = data["sensitivity"]
-    slope = sens["kW_per_degC_outdoor"].clip(lower=0)
     st.subheader("What if we change the setpoint or the operating schedule?",
                  help="Uses the reporting-period 15-minute data. Setpoint effect: each unit's baseline regression slope "
                       "(kW per °C of outdoor temperature) stands in for the kW saved per 1 °C setpoint rise, and the "
@@ -561,41 +612,11 @@ with tab_sim:
                              help="Ticked: weekends are allowed (no change). Unticked: the proposal is no AC at "
                                   "weekends, so all weekend AC energy counts as saved.")
 
-    sim = detail.loc[detail["eligible"] & detail["actual_kW"].notna(),
-                     ["Date", "unit", "actual_kW", "indoor_temp_C"]].copy()
-    hour = sim["Date"].dt.hour + sim["Date"].dt.minute / 60
-    weekend = sim["Date"].dt.dayofweek >= 5
-    in_window = hour.ge(start_h) & hour.lt(stop_h)
-    sim["outside_window"] = (~in_window & ~weekend) | (weekend & ~weekend_on)
-    sim["running"] = sim["actual_kW"].gt(on_kw)
-    sim["slope"] = sim["unit"].map(slope).fillna(0)
-    # Each zone's current "effective setpoint" = median indoor temperature while its unit runs
-    current_sp = sim.loc[sim["running"]].groupby("unit")["indoor_temp_C"].median()
-    sim["current_sp"] = sim["unit"].map(current_sp)
-    total_kwh = sim["actual_kW"].sum() * INTERVAL_HOURS
-
-    def simulate(sp):
-        avoided = sim["running"] & sim["outside_window"]
-        active = sim["running"] & ~avoided & sim["indoor_temp_C"].notna()
-        shift = (sp - sim["current_sp"]).where(active, 0)
-        setpoint_kwh = np.minimum(sim["slope"] * shift, sim["actual_kW"]).sum() * INTERVAL_HOURS
-        schedule_kwh = sim.loc[avoided, "actual_kW"].sum() * INTERVAL_HOURS
-        new_temp = sim.loc[active, "indoor_temp_C"] + shift.loc[active]
-        comfort = 100 * new_temp.between(*band).mean() if len(new_temp) else np.nan
-        return setpoint_kwh, schedule_kwh, comfort
-
-    running_now = sim["running"] & sim["indoor_temp_C"].notna()
-    comfort_now = 100 * sim.loc[running_now, "indoor_temp_C"].between(*band).mean()
-    sp_kwh, sch_kwh, comfort_new = simulate(setpoint)
-    saved = sp_kwh + sch_kwh
-    days = (detail["Date"].max() - detail["Date"].min()).days + 1
-
-    sweep_sp = np.arange(18.0, 28.01, 0.5)
-    rows = [(sp, *simulate(sp)) for sp in sweep_sp]
-    sp_table = pd.DataFrame(rows, columns=["setpoint", "setpoint_kWh", "schedule_kWh", "comfort_pct"])
-    sp_table["total_kWh"] = sp_table["setpoint_kWh"] + sp_table["schedule_kWh"]
-    ok = sp_table.loc[sp_table["comfort_pct"].ge(comfort_target)]
-    best = ok.loc[ok["total_kWh"].idxmax()] if len(ok) else None
+    plan = simulate_plan(detail, sens, on_kw, setpoint, band, start_h, stop_h, weekend_on, comfort_target)
+    sp_kwh, sch_kwh, saved, total_kwh = plan["sp_kwh"], plan["sch_kwh"], plan["saved"], plan["total_kwh"]
+    comfort_new, comfort_now, days = plan["comfort_new"], plan["comfort_now"], plan["days"]
+    sp_table, best = plan["sp_table"], plan["best"]
+    per_unit = plan["per_unit"].assign(unit=lambda t: t["unit"].map(unit_label)).rename(columns={"unit": "AC unit"})
 
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Estimated energy saved", f"{saved:,.0f} kWh", f"{-100 * saved / total_kwh:.1f}% of AC energy",
@@ -614,20 +635,6 @@ with tab_sim:
         st.warning(f"No setpoint in 18–28 °C reaches {comfort_target}% compliance. The most comfortable setpoint is "
                    f"**{best_comfort['setpoint']:.1f} °C** ({best_comfort['comfort_pct']:.0f}% in band, "
                    f"{best_comfort['total_kWh']:,.0f} kWh estimated saving). Lower the target or widen the band.")
-
-    per_unit = []
-    for unit_name, part in sim.groupby("unit"):
-        avoided = part["running"] & part["outside_window"]
-        active = part["running"] & ~avoided & part["indoor_temp_C"].notna()
-        shift = (setpoint - part["current_sp"]).where(active, 0)
-        sp_unit = np.minimum(part["slope"] * shift, part["actual_kW"]).sum() * INTERVAL_HOURS
-        sch_unit = part.loc[avoided, "actual_kW"].sum() * INTERVAL_HOURS
-        energy = part["actual_kW"].sum() * INTERVAL_HOURS
-        per_unit.append({"AC unit": unit_label(unit_name), "AC energy kWh": energy,
-                         "Median indoor °C (running)": part.loc[part["running"], "indoor_temp_C"].median(),
-                         "kW per °C": slope.get(unit_name, np.nan), "R²": sens["R2"].get(unit_name, np.nan),
-                         "Setpoint saving kWh": sp_unit, "Schedule saving kWh": sch_unit,
-                         "Saving %": 100 * (sp_unit + sch_unit) / energy if energy else np.nan})
 
     g1, g2, g3 = st.columns([1, 1, 1.4])
     fig = go.Figure(go.Scatter(x=sp_table["setpoint"], y=sp_table["total_kWh"], mode="lines+markers",
@@ -856,3 +863,284 @@ with tab_compare:
                          "vs peers": st.column_config.NumberColumn(format="%+.0f%%"),
                          "After-hours kWh": st.column_config.NumberColumn(format="%.0f"),
                          "Flagged excess kWh": st.column_config.NumberColumn(format="%.0f")})
+
+# ================================================================ chat assistant
+def _r(value, digits=2):
+    """JSON-friendly rounding for tool results."""
+    if isinstance(value, (float, np.floating)):
+        return None if np.isnan(value) else round(float(value), digits)
+    if isinstance(value, (np.integer,)):
+        return int(value)
+    if isinstance(value, (pd.Timestamp,)):
+        return value.strftime("%Y-%m-%d %H:%M")
+    return value
+
+
+def _records(frame, digits=2):
+    return [{k: _r(v, digits) for k, v in row.items()} for row in frame.to_dict("records")]
+
+
+def _scope_floor(scope):
+    return ALL if scope == "building" else int(scope.split("_")[1])
+
+
+def _unit_code(unit):
+    """Accept 'F7_z1_AC4', 'F7_z1_AC4(kW)' or 'floor 7 zone 1 ac4'."""
+    match = re.search(r"F?(?:loor)?\s*(\d)\D*z(?:one)?\s*(\d)\D*AC\s*(\d)", unit, re.I)
+    if not match:
+        raise ValueError(f"Unknown unit '{unit}'. Use a code like F7_z1_AC4 (see get_dataset_info).")
+    code = f"F{match[1]}_z{match[2]}_AC{match[3]}(kW)"
+    if int(match[1]) not in FLOORS or code not in set(load(int(match[1]))["detail"]["unit"]):
+        raise ValueError(f"Unit {code} is not in the data.")
+    return code
+
+
+def _scope_state(scope):
+    floor_ = _scope_floor(scope)
+    fd = flags_for(floor_, k_iqr, k_res, on_kw, persist, use_stat, use_after, use_persist)
+    fev = build_events(fd, hot_weight, after_weight)
+    return floor_, load(floor_), fd, fev, unit_priority(fd, fev)
+
+
+def _dates(start_date, end_date):
+    start = pd.Timestamp(start_date) if start_date else None
+    end = pd.Timestamp(end_date) + pd.Timedelta(days=1) if end_date else None
+    return start, end
+
+
+def chat_dataset_info():
+    first = load(FLOORS[0])["detail"]["Date"]
+    return {
+        "building": "Chamchuri 5, Chulalongkorn University, Bangkok (CU-BEMS dataset)",
+        "floors": FLOORS,
+        "ac_units": {f"floor_{f}": [u.replace("(kW)", "") for u in dict.fromkeys(load(f)["detail"]["unit"])] for f in FLOORS},
+        "baseline_period": "2018-07-01 to 2019-06-30 (used to learn normal behaviour)",
+        "reporting_period": f"{first.min():%Y-%m-%d} to {first.max():%Y-%m-%d} (flags, KPIs and simulator use this)",
+        "resolution": "15-minute AC power for anomalies; hourly for the forecast",
+        "weather": "Open-Meteo hourly outdoor temperature, humidity and rain for Bangkok, shifted to local time",
+        "current_view": SCOPE_NAME,
+        "anomaly_rules": {
+            "unusually_high": f"power above Q3 + {k_iqr:g} x IQR for that 15-minute slot and weekday",
+            "after_hours": "running when the unit is normally off",
+            "persistent": f"above expected by more than Q3 + {k_res:g} x IQR of baseline residuals for at least "
+                          f"{persist} intervals ({persist * 15} minutes)",
+            "running_threshold_kW": on_kw},
+        "definitions": {
+            "excess_kWh": "estimated energy above the unit's expected (normal) use during flagged periods",
+            "priority_score": "sum over a unit's events of excess kWh, with after-hours waste x1.5 and hot-day waste x0.5",
+            "hot_day": "daytime outdoor temperature above the 90th percentile of baseline days in the same month",
+            "comfort_band": "23-26 °C indoor temperature; humidity band 40-60 %",
+            "after_hours_share": "share of AC energy used when the derived schedule says the floor is normally off",
+            "forecast": "next-day hourly AC demand; methods ranked by average error on Jul-Dec 2019",
+            "flags": "potential anomalies for review, not diagnosed faults"},
+        "not_in_data": ["occupancy", "equipment make/model or maintenance records", "electricity bills or tariffs",
+                        "other buildings or floors 1, 2 and 6", "data after 31 Dec 2019"],
+    }
+
+
+def chat_kpis(scope):
+    floor_, fdata, fd, fev, fpr = _scope_state(scope)
+    k, sens = fdata["floor_kpis"], fdata["sensitivity"]
+    return {"scope": scope, "reporting_period": "Jul-Dec 2019",
+            "ac_energy_kWh": _r(k["estimated_energy_kWh_valid_intervals"], 0),
+            "after_hours_share_pct": _r(k["after_hours_energy_pct_valid_intervals"], 1),
+            "peak_15min_kW": _r(k["15min_peak_kW"], 1),
+            "flagged_events": len(fev), "flagged_excess_kWh": _r(fpr["flagged_excess_kWh"].sum(), 0),
+            "units": len(fpr),
+            "median_indoor_temp_running_C": _r(sens["median_indoor_temp_C_running"].median(), 1),
+            "avg_pct_running_hours_in_23_26C": _r(sens["pct_running_hours_in_comfort_band"].mean(), 1)}
+
+
+def chat_unit_priority(scope, top_n):
+    *_, fpr = _scope_state(scope)
+    table = fpr.head(max(1, min(int(top_n), 16))).copy()
+    table["unit"] = [u.replace("(kW)", "") for u in table.index]
+    return {"scope": scope, "units_total": len(fpr),
+            "ranking": _records(table[["rank", "unit", "priority_score", "flagged_excess_kWh", "events", "flagged_h",
+                                       "after_hours_flagged_h", "flagged_pct", "longest_event_h", "hot_day_events"]], 1)}
+
+
+def chat_events(scope, unit, start_date, end_date, after_hours_only, exclude_hot_days, min_duration_hours, sort_by, top_n):
+    *_, fev, _fpr = _scope_state(scope)
+    ev = fev
+    if ev.empty:
+        return {"matched_events": 0, "events": []}
+    if unit:
+        ev = ev.loc[ev["unit"].eq(_unit_code(unit))]
+    start, end = _dates(start_date, end_date)
+    if start is not None:
+        ev = ev.loc[ev["start"].ge(start)]
+    if end is not None:
+        ev = ev.loc[ev["start"].lt(end)]
+    if after_hours_only:
+        ev = ev.loc[ev["after_hours_h"].gt(0)]
+    if exclude_hot_days:
+        ev = ev.loc[~ev["hot_day"]]
+    ev = ev.loc[ev["duration_h"].ge(min_duration_hours or 0)]
+    order = {"priority": ("priority_score", False), "excess_kWh": ("excess_kWh", False),
+             "duration": ("duration_h", False), "start": ("start", True)}[sort_by]
+    ev = ev.sort_values(order[0], ascending=order[1])
+    out = ev.head(max(1, min(int(top_n), 50))).assign(unit=lambda t: t["unit"].str.replace("(kW)", "", regex=False))
+    return {"scope": scope, "matched_events": len(ev), "total_excess_kWh_matched": _r(ev["excess_kWh"].sum(), 0),
+            "events": _records(out[["unit", "start", "end", "duration_h", "peak_kW", "excess_kWh", "after_hours_h",
+                                    "outdoor_C", "indoor_C", "hot_day", "priority_score", "reason"]], 1)}
+
+
+def chat_unit_daily(unit, start_date, end_date):
+    code = _unit_code(unit)
+    floor_ = int(code[1])
+    fd = flags_for(floor_, k_iqr, k_res, on_kw, persist, use_stat, use_after, use_persist)
+    u = fd.loc[fd["unit"].eq(code)].set_index("Date")
+    start, end = _dates(start_date, end_date)
+    if (end - start).days > 62:
+        raise ValueError("At most 62 days per call. Split the period.")
+    u = u.loc[start: end - pd.Timedelta(minutes=15)]
+    if u.empty:
+        raise ValueError("No data for that unit and period. The reporting period is 2019-07-01 to 2019-12-31.")
+    running = u["actual_kW"].gt(on_kw)
+    daily = pd.DataFrame({
+        "energy_kWh": u["actual_kW"].resample("D").sum() * INTERVAL_HOURS,
+        "peak_kW": u["actual_kW"].resample("D").max(),
+        "flagged_h": u["flagged"].resample("D").sum() * INTERVAL_HOURS,
+        "flagged_excess_kWh": u["excess_kWh_est"].where(u["flagged"], 0).resample("D").sum(),
+        "after_hours_kWh": u["actual_kW"].where(running & u["schedule_on"].eq(False), 0).resample("D").sum() * INTERVAL_HOURS,
+        "outdoor_mean_C": u["outdoor_temp_C"].resample("D").mean(),
+        "indoor_mean_running_C": u["indoor_temp_C"].where(running).resample("D").mean()})
+    daily.insert(0, "date", daily.index.strftime("%Y-%m-%d (%a)"))
+    return {"unit": code.replace("(kW)", ""), "days": _records(daily, 1),
+            "totals": {k: _r(daily[k].sum(), 1) for k in ["energy_kWh", "flagged_h", "flagged_excess_kWh", "after_hours_kWh"]}}
+
+
+def chat_flag_timing(scope):
+    _f, _d, fd, *_ = _scope_state(scope)
+    valid = fd.loc[fd["eligible"]]
+    by_day = 100 * valid.groupby(valid["Date"].dt.dayofweek)["flagged"].mean()
+    by_hour = 100 * valid.groupby(valid["Date"].dt.hour)["flagged"].mean()
+    return {"scope": scope, "pct_intervals_flagged_by_weekday": {DAYS[i]: _r(v, 1) for i, v in by_day.items()},
+            "pct_intervals_flagged_by_hour": {f"{h:02d}:00": _r(v, 1) for h, v in by_hour.items()}}
+
+
+def chat_simulate(scope, setpoint_c, comfort_low_c, comfort_high_c, min_comfort_pct, weekday_start_hour,
+                  weekday_end_hour, allow_weekends, tariff_thb_per_kwh):
+    floor_ = _scope_floor(scope)
+    fdata = load(floor_)
+    plan = simulate_plan(fdata["detail"], fdata["sensitivity"], on_kw, float(setpoint_c),
+                         (float(comfort_low_c), float(comfort_high_c)), float(weekday_start_hour),
+                         float(weekday_end_hour), bool(allow_weekends), float(min_comfort_pct))
+    best = plan["best"]
+    if best is None:
+        fallback = plan["sp_table"].loc[plan["sp_table"]["comfort_pct"].idxmax()]
+        recommendation = {"meets_target": False, "most_comfortable_setpoint_C": _r(fallback["setpoint"], 1),
+                          "its_comfort_pct": _r(fallback["comfort_pct"], 1)}
+    else:
+        recommendation = {"meets_target": True, "recommended_setpoint_C": _r(best["setpoint"], 1),
+                          "saving_kWh": _r(best["total_kWh"], 0), "saving_THB": _r(best["total_kWh"] * tariff_thb_per_kwh, 0),
+                          "comfort_pct": _r(best["comfort_pct"], 1)}
+    saved = plan["saved"]
+    return {"scope": scope, "period": "Jul-Dec 2019 (184 days)", "assumed_tariff_THB_per_kWh": tariff_thb_per_kwh,
+            "inputs": {"setpoint_C": setpoint_c, "comfort_band_C": [comfort_low_c, comfort_high_c],
+                       "weekday_window_h": [weekday_start_hour, weekday_end_hour], "allow_weekends": allow_weekends},
+            "saving_kWh": _r(saved, 0), "saving_pct_of_ac_energy": _r(100 * saved / plan["total_kwh"], 1),
+            "from_setpoint_kWh": _r(plan["sp_kwh"], 0), "from_schedule_kWh": _r(plan["sch_kwh"], 0),
+            "saving_THB": _r(saved * tariff_thb_per_kwh, 0),
+            "saving_THB_per_year_est": _r(saved * tariff_thb_per_kwh * 365 / plan["days"], 0),
+            "comfort_pct_now": _r(plan["comfort_now"], 1), "comfort_pct_new": _r(plan["comfort_new"], 1),
+            "recommendation_for_min_comfort": {"min_comfort_pct": min_comfort_pct, **recommendation},
+            "caveat": "Screening estimate from a regression proxy; confirm with a measured trial."}
+
+
+def chat_comfort(scope):
+    sens = load(_scope_floor(scope))["sensitivity"].copy()
+    sens.insert(0, "unit", [u.replace("(kW)", "") for u in sens.index])
+    return {"scope": scope, "comfort_band_C": [23, 26], "humidity_band_pct": [40, 60],
+            "zones": _records(sens[["unit", "median_indoor_temp_C_running", "pct_running_hours_in_comfort_band",
+                                    "pct_running_hours_in_RH_band", "kW_per_degC_outdoor", "R2"]], 2)}
+
+
+def chat_forecast_accuracy(scope):
+    fdata = load(_scope_floor(scope))
+    tm = fdata["test_metrics"].sort_values("MAE_kW")
+    chosen = fdata.get("selected_model") or fdata["validation_metrics"]["MAE_kW"].idxmin()
+    rows = [{"rank": i + 1, "method": MODEL_LABELS.get(m, m), "recommended": m == chosen,
+             "avg_error_kW": _r(r["MAE_kW"]), "peak_hour_error_kW": _r(r["peak_hour_MAE_kW"]),
+             "bias_pct": _r(r["NMBE_pct"], 1)} for i, (m, r) in enumerate(tm.iterrows())]
+    out = {"scope": scope, "test_period": "Jul-Dec 2019", "methods": rows,
+           "note": "Recommended = chosen on Apr-Jun 2019 data before the test. Weather methods used observed weather."}
+    if scope == "building":
+        out["building_method"] = {f"floor_{f}": MODEL_LABELS.get(m, m) for f, m in
+                                  {f: load(f)["validation_metrics"]["MAE_kW"].idxmin() for f in FLOORS}.items()}
+    return out
+
+
+def chat_next_day(scope):
+    n24 = load(_scope_floor(scope))["next24"]["predicted_kW"]
+    return {"scope": scope, "date": "2020-01-01 (day after the data ends; holidays not modelled)",
+            "hourly_kW": {f"{t:%H:%M}": _r(v, 1) for t, v in n24.items()},
+            "peak": {"time": f"{n24.idxmax():%H:%M}", "kW": _r(n24.max(), 1)}, "daily_kWh": _r(n24.sum(), 0)}
+
+
+def chat_compare_floors():
+    floors_out, per_unit = [], []
+    for f in FLOORS:
+        fdata = load(f)
+        fd = flags_for(f, k_iqr, k_res, on_kw, persist, use_stat, use_after, use_persist)
+        fev = build_events(fd, hot_weight, after_weight)
+        fpr = unit_priority(fd, fev)
+        k, s_ = fdata["floor_kpis"], fdata["sensitivity"]
+        chosen = fdata["validation_metrics"]["MAE_kW"].idxmin()
+        floors_out.append({"floor": f, "ac_energy_kWh": _r(k["estimated_energy_kWh_valid_intervals"], 0),
+                           "after_hours_pct": _r(k["after_hours_energy_pct_valid_intervals"], 1),
+                           "peak_15min_kW": _r(k["15min_peak_kW"], 1), "flagged_events": len(fev),
+                           "excess_kWh": _r(fpr["flagged_excess_kWh"].sum(), 0),
+                           "priority_score": _r(fpr["priority_score"].sum(), 0),
+                           "median_indoor_C": _r(s_["median_indoor_temp_C_running"].median(), 1),
+                           "forecast_avg_error_kW": _r(fdata["test_metrics"].loc[chosen, "MAE_kW"])})
+        for u in fpr.index:
+            per_unit.append({"unit": u, "position": position_of(u),
+                             "mean_kW": fd.loc[fd["unit"].eq(u) & fd["eligible"], "actual_kW"].mean(),
+                             "priority_score": fpr.loc[u, "priority_score"]})
+    pu = pd.DataFrame(per_unit)
+    pu["vs_same_position_peers_pct"] = [
+        100 * (r.mean_kW / pu.loc[pu["position"].eq(r.position) & pu["unit"].ne(r.unit), "mean_kW"].median() - 1)
+        for r in pu.itertuples()]
+    pu["unit"] = pu["unit"].str.replace("(kW)", "", regex=False)
+    return {"floors": floors_out,
+            "units_vs_peers": _records(pu.sort_values("priority_score", ascending=False)
+                                       [["unit", "mean_kW", "vs_same_position_peers_pct", "priority_score"]], 1)}
+
+
+def chat_weather(start_date, end_date):
+    w = load(FLOORS[0])["weather"]
+    start, end = _dates(start_date, end_date)
+    part = w.loc[start: end - pd.Timedelta(hours=1)]
+    if part.empty:
+        raise ValueError("No weather data for those dates. Coverage is 2018-07-01 to 2019-12-31.")
+    day = part.between_time("08:00", "16:59")["outdoor_temp_C"].resample("D").mean()
+    base = w.loc[:"2019-06-30"].between_time("08:00", "16:59")["outdoor_temp_C"].resample("D").mean()
+    threshold = base.groupby(base.index.month).quantile(0.9)
+    hot = day.gt(day.index.month.map(threshold).values)
+    monthly = part.resample("MS").agg({"outdoor_temp_C": "mean", "outdoor_rh_pct": "mean", "rain_mm": "sum"})
+    return {"period": [start_date, end_date],
+            "outdoor_temp_C": {"mean": _r(part["outdoor_temp_C"].mean(), 1), "min": _r(part["outdoor_temp_C"].min(), 1),
+                               "max": _r(part["outdoor_temp_C"].max(), 1)},
+            "mean_humidity_pct": _r(part["outdoor_rh_pct"].mean(), 0), "total_rain_mm": _r(part["rain_mm"].sum(), 1),
+            "hottest_day": {"date": f"{day.idxmax():%Y-%m-%d}", "daytime_mean_C": _r(day.max(), 1)},
+            "hot_days": int(hot.sum()),
+            "monthly": [{"month": f"{t:%Y-%m}", "mean_temp_C": _r(r["outdoor_temp_C"], 1),
+                         "mean_humidity_pct": _r(r["outdoor_rh_pct"], 0), "rain_mm": _r(r["rain_mm"], 1)}
+                        for t, r in monthly.iterrows()]}
+
+
+CHAT_EXECUTORS = {
+    "get_dataset_info": chat_dataset_info, "get_kpis": chat_kpis, "get_unit_priority": chat_unit_priority,
+    "get_events": chat_events, "get_unit_daily_activity": chat_unit_daily, "get_flag_timing": chat_flag_timing,
+    "simulate_setpoint_and_schedule": chat_simulate, "get_comfort": chat_comfort,
+    "get_forecast_accuracy": chat_forecast_accuracy, "get_next_day_forecast": chat_next_day,
+    "compare_floors": chat_compare_floors, "get_weather_summary": chat_weather}
+
+chatbot.render(
+    FLOORS, CHAT_EXECUTORS,
+    context_note=(f"Dashboard view: {'building' if floor == ALL else f'floor_{floor}'} ({SCOPE_NAME}). "
+                  f"Anomaly thresholds: IQR k={k_iqr:g}, residual k={k_res:g}, persistence={persist} intervals, "
+                  f"running threshold={on_kw:g} kW. Simulator defaults: setpoint 25 °C, comfort 23-26 °C, "
+                  f"min comfort 70 %, weekday window 0-24, weekends allowed, tariff 4.2 THB/kWh."))
