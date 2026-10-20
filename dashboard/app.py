@@ -660,23 +660,51 @@ with tab_forecast:
     tm = data["test_metrics"].copy()
     vm = data["validation_metrics"]
     selected_model = data.get("selected_model") or vm["MAE_kW"].idxmin()
-    forecast_help = (("Building demand = sum of the floor totals. 'Each floor's validation-selected model' adds up the "
-                      "model each floor chose on Apr–Jun 2019 data. Peak-hour error uses the top 10 % of test hours. ")
-                     if floor == ALL else "")
-    forecast_help += (f"Model chosen on Apr–Jun 2019 validation: {MODEL_LABELS.get(selected_model, selected_model)}. "
-                      "Test period Jul–Dec 2019. MAE = average error per hour (lower is better). Models with weather use "
-                      "observed Open-Meteo weather as a stand-in for a weather forecast, so their errors are optimistic.")
-    tm.insert(0, "Model", tm.index.map(lambda m: MODEL_LABELS.get(m, m)))
+    # Rank by accuracy on the unseen test period (lower average error = better)
+    tm = tm.sort_values("MAE_kW")
+    tm.insert(0, "Rank", range(1, len(tm) + 1))
+    tm.insert(1, "Model", [("✓ " if m == selected_model else "") + MODEL_LABELS.get(m, m) for m in tm.index])
     tm["Validation MAE_kW"] = vm["MAE_kW"].reindex(tm.index)
+    selected_rank = int(tm.loc[selected_model, "Rank"])
+    best_mae, selected_mae = tm["MAE_kW"].iloc[0], tm.loc[selected_model, "MAE_kW"]
     models = [c for c in fc.columns if c != "floor_kW"]
+
+    forecast_help = ("Ranked by average error on Jul–Dec 2019, data the methods never saw (lower = better). "
+                     "The ✓ method is the one to use: it was chosen on earlier data (Apr–Jun 2019) before this "
+                     "test, which is the fair way to pick one. ")
+    if floor == ALL:
+        forecast_help += ("For the whole building, 'Each floor's validation-selected model' adds up the method each "
+                          "floor chose. ")
+    forecast_help += ("Peak-hour error = average error in the busiest 10 % of hours. Bias: + means it predicts too "
+                      "high on average, − too low. Methods with weather use observed Open-Meteo weather in place of a "
+                      "weather forecast, so their errors are optimistic.")
 
     left, right = st.columns([2, 3])
     with left:
         st.subheader("Next-day hourly demand forecast", help=forecast_help)
-        # The building has no validation run of its own, so its table omits that column
-        st.dataframe(tm[(["Model"] if floor == ALL else ["Model", "Validation MAE_kW"])
-                        + ["MAE_kW", "RMSE_kW", "NMBE_pct", "CV_RMSE_pct", "peak_hour_MAE_kW", "hours"]].round(2),
-                     hide_index=True, width="stretch", height=table_height(len(tm), 400))
+        columns = (["Rank", "Model", "MAE_kW", "peak_hour_MAE_kW", "NMBE_pct"]
+                   + ([] if floor == ALL else ["Validation MAE_kW"])  # the building has no validation run of its own
+                   + ["RMSE_kW", "CV_RMSE_pct", "hours"])
+        st.dataframe(tm[columns].round(2), hide_index=True, width="stretch", height=table_height(len(tm), 400),
+                     column_config={
+                         "Rank": st.column_config.NumberColumn("#", width=35),
+                         "Model": st.column_config.TextColumn("Method (✓ = use this)", width="medium"),
+                         "MAE_kW": st.column_config.NumberColumn("Avg error (kW)", format="%.2f",
+                                                                 help="Average forecast error per hour. Lower is better."),
+                         "peak_hour_MAE_kW": st.column_config.NumberColumn("Peak-hour error (kW)", format="%.2f",
+                                                                           help="Average error in the busiest 10 % of hours."),
+                         "NMBE_pct": st.column_config.NumberColumn("Bias (%)", format="%+.1f",
+                                                                   help="+ = predicts too high on average, − = too low."),
+                         "Validation MAE_kW": st.column_config.NumberColumn("Apr–Jun error (kW)", format="%.2f",
+                                                                            help="Error on the earlier data used to choose the method."),
+                         "RMSE_kW": st.column_config.NumberColumn("RMSE (kW)", format="%.2f"),
+                         "CV_RMSE_pct": st.column_config.NumberColumn("CV(RMSE) %", format="%.1f"),
+                         "hours": st.column_config.NumberColumn("Hours scored")})
+        if selected_rank == 1:
+            st.caption(f"Use **{MODEL_LABELS.get(selected_model, selected_model)}**: recommended and the most accurate on Jul–Dec 2019.")
+        else:
+            st.caption(f"Use **{MODEL_LABELS.get(selected_model, selected_model)}** (rank {selected_rank}). It was chosen "
+                       f"before the test period; #1 on Jul–Dec was only {selected_mae - best_mae:.2f} kW per hour better.")
     with right:
         c1, c2 = st.columns([2, 1])
         picked = c1.multiselect("Models to plot", models, default=[selected_model] + [m for m in models if "weather" in m][:1],
