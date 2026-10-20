@@ -550,8 +550,14 @@ with tab_sim:
                              help="Assumption. Change it to your actual tariff.")
     start_h, stop_h = c3.slider("Weekday AC window", 0.0, 24.0, (7.0, 18.0), 0.25,
                                 format="%.2f h", help="Energy outside this window counts as avoidable.")
-    weekend_on = c4.checkbox("Keep weekends running", True)
-    apply_schedule = c4.checkbox("Apply schedule change", False)
+    weekend_on = c4.checkbox("Keep weekends running", True,
+                             help="Ticked: weekends are allowed. Unticked: the proposal is no AC at weekends, so "
+                                  "weekend use counts as avoidable when the schedule change is applied.")
+    apply_schedule = c4.checkbox("Apply schedule change", False,
+                                 help="Unticked: only the setpoint change is counted. Ticked: assumes the AC is switched "
+                                      "off outside the weekday window (and at weekends if unticked above), and counts "
+                                      "all AC energy used at those times as saved. This is the maximum possible saving: "
+                                      "some after-hours use may be legitimate (events, cleaning, servers).")
 
     sim = detail.loc[detail["eligible"] & detail["actual_kW"].notna(),
                      ["Date", "unit", "actual_kW", "indoor_temp_C"]].copy()
