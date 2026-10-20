@@ -405,7 +405,7 @@ with tab_twin:
     else:
         import streamlit.components.v1 as components
         components.html(twin.html(twin_data), height=760)
-    st.caption("Zone colours, airflow and glow come from the 15-minute data. Lights count as 'after hours' when a zone's "
+    st.caption("Zone colours and the glowing ceiling lights come from the 15-minute data. Lights count as 'after hours' when a zone's "
                f"lighting is above {twin.LIGHT_ON_KW} kW while every AC unit on that floor is normally off (stairwells excluded). "
                "Floors 1, 2 and 6 are shown for context but are not in this analysis.")
 
