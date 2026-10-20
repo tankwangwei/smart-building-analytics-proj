@@ -11,6 +11,3 @@ _backup/
 __pycache__/
 *.pyc
 .venv/
-
-# Streamlit secrets (API keys)
-.streamlit/secrets.toml

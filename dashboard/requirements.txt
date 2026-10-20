@@ -4,4 +4,3 @@ matplotlib
 scikit-learn
 streamlit>=1.50
 plotly>=5.0
-anthropic>=1.2

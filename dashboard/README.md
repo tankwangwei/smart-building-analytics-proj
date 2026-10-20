@@ -15,16 +15,3 @@ The sidebar **View** opens on **Whole building** (Floors 3, 4, 5 and 7 combined)
 
 The sidebar thresholds apply to every tab. The notebook defaults are k = 1.5, 0.5 kW and 8 intervals.
 All figures are screening estimates: flags are not diagnosed faults, and savings need a measured trial.
-
-## Data assistant (chat button, bottom-right)
-
-The **💬 Ask the data** button opens a chat assistant (Claude Opus 5.5) that answers business questions only from this
-dashboard's data. It calls the same calculations the tabs use (priority list, events, simulator, forecast, floor comparison,
-weather) and, when the data can't answer a question, replies "Sorry, I can't answer that from the dashboard's data."
-
-It needs an Anthropic API key (usage is billed to that key):
-- **Streamlit Cloud:** app menu ⋮ → Settings → Secrets, add `ANTHROPIC_API_KEY = "sk-ant-..."`.
-- **Locally:** set the `ANTHROPIC_API_KEY` environment variable, or create `.streamlit/secrets.toml` with the same line
-  (that file is git-ignored; never commit a key).
-
-Without a key the button still appears and explains how to set it up.
