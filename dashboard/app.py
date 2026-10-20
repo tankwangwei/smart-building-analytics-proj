@@ -294,37 +294,47 @@ with tab_overview:
     c5.metric("Median indoor temp while running", f"{sens['median_indoor_temp_C_running'].median():.1f} °C",
               help="Reporting period, weekdays, unit running. Typical comfort band 23–26 °C.")
 
+    # Fixed table heights so the units table ends level with the Comfort Level table:
+    # left table = comfort table + everything stacked above it in the right column.
+    comfort_rows = len(data["sensitivity"])
+    comfort_height = (comfort_rows + 1) * 35 + 3
+    RIGHT_COLUMN_ABOVE_COMFORT = 377  # forecast heading + chart + comfort heading, in px (measured)
+    # Headings in the right column stay on one line so its height (and the table alignment) never shifts
+    st.markdown("<style>.st-key-overview_right h3 {white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}</style>",
+                unsafe_allow_html=True)
     left, right = st.columns([3, 2])
     with left:
-        st.subheader("Review these units first",
+        st.subheader("Review these units",
                      help="Priority score = each unit's estimated excess kWh during flagged periods, where after-hours "
                           "waste counts 1.5× (usually a quick timer fix) and waste on unusually hot days counts 0.5× "
                           "(partly explained by the weather). Higher score = inspect first.")
         show = priority[["rank", "AC unit", "priority_score", "flagged_excess_kWh", "events",
                          "after_hours_flagged_h", "flagged_pct"]]
-        st.dataframe(show, hide_index=True, width="stretch", column_config={
+        st.dataframe(show, hide_index=True, width="stretch", height=comfort_height + RIGHT_COLUMN_ABOVE_COMFORT, column_config={
             "priority_score": st.column_config.ProgressColumn("Priority score", format="%.0f",
                                                               min_value=0, max_value=float(max(1, show["priority_score"].max()))),
             "flagged_excess_kWh": st.column_config.NumberColumn("Excess kWh (est.)", format="%.0f"),
             "events": st.column_config.NumberColumn("Events"),
             "after_hours_flagged_h": st.column_config.NumberColumn("After-hours flagged (h)", format="%.1f"),
             "flagged_pct": st.column_config.NumberColumn("Flagged %", format="%.1f%%")})
+    right = right.container(key="overview_right")
     with right:
-        st.subheader("Next-day forecast" if floor != ALL else "Next-day building forecast")
         n24 = data["next24"]
+        st.subheader("Next-day forecast" if floor != ALL else "Next-day building forecast",
+                     help=f"Hourly AC demand predicted for 1 Jan 2020, the day after the data ends. "
+                          f"Method: {MODEL_LABELS.get(n24['method'].iloc[0], n24['method'].iloc[0])}. "
+                          f"Predicted daily energy: {n24['predicted_kW'].sum():,.0f} kWh. Holidays are not modelled.")
         fig = go.Figure(go.Scatter(x=n24.index, y=n24["predicted_kW"], mode="lines+markers",
                                    line=dict(color=ACTUAL, width=2), marker=dict(size=8), name="Forecast"))
         peak = n24["predicted_kW"].idxmax()
         fig.add_annotation(x=peak, y=n24["predicted_kW"].max(), text=f"Peak {peak:%H:%M}: {n24['predicted_kW'].max():.1f} kW",
                            showarrow=True, arrowhead=2)
         st.plotly_chart(style(fig, 300, "kW"), width="stretch")
-        st.caption(f"Method: {MODEL_LABELS.get(n24['method'].iloc[0], n24['method'].iloc[0])} · "
-                   f"predicted daily energy {n24['predicted_kW'].sum():,.0f} kWh · holidays are not modelled.")
         st.subheader("Comfort Level")
         comfort = sens[["median_indoor_temp_C_running", "pct_running_hours_in_comfort_band", "pct_running_hours_in_RH_band"]].copy()
         comfort.index = comfort.index.map(unit_label)
         comfort.columns = ["Median indoor °C", "% hours 23–26 °C", "% hours RH 40–60%"]
-        st.dataframe(comfort.round(1), width="stretch")
+        st.dataframe(comfort.round(1), width="stretch", height=comfort_height)
         if comfort["Median indoor °C"].median() < 23:
             st.info("Zones are held **below** the comfort band. This points to overcooling. "
                     "Try the setpoint simulator to see the potential savings.")
