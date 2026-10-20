@@ -118,7 +118,6 @@ def load_building():
     # Only the combination of each floor's validation choice is "selected" for the building
     data["validation_metrics"] = pd.DataFrame({"MAE_kW": [np.nan]}, index=["Selected per floor"])
     data["selected_model"] = "Selected per floor"
-    data["chosen_per_floor"] = chosen
     data["next24"] = pd.DataFrame({"predicted_kW": sum(p["next24"]["predicted_kW"] for p in parts.values()),
                                    "method": "Selected per floor"})
 
@@ -133,10 +132,14 @@ def load_building():
     return data
 
 
-@st.cache_data(show_spinner="Loading analysis outputs…")
 def load(floor):
-    if floor == ALL:
-        return load_building()
+    """The whole building or one floor. Not cached itself: each loader has its own cache, so a code change to
+    either one refreshes it (a cached dispatcher kept serving stale building data after load_building changed)."""
+    return load_building() if floor == ALL else load_floor(floor)
+
+
+@st.cache_data(show_spinner="Loading analysis outputs…")
+def load_floor(floor):
     OUT = ROOT / f"floor_{floor}"
     detail = pd.read_csv(OUT / "anomaly_15min_detail.csv", parse_dates=["Date"])
     for column in ["eligible", "hot_day"]:
@@ -676,7 +679,7 @@ with tab_forecast:
     if floor == ALL:
         forecast_help += ("For the whole building, 'Best method per floor (combined)' forecasts each floor with its "
                           "own chosen method and adds them up: "
-                          + "; ".join(f"Floor {f}: {MODEL_LABELS.get(m, m)}" for f, m in data["chosen_per_floor"].items())
+                          + "; ".join(f"Floor {f}: {MODEL_LABELS.get(m, m)}" for f, m in {f: load(f)["validation_metrics"]["MAE_kW"].idxmin() for f in FLOORS}.items())
                           + ". ")
     forecast_help += ("Peak-hour error = average error in the busiest 10 % of hours. Bias: + means it predicts too "
                       "high on average, − too low. Methods with weather use observed Open-Meteo weather in place of a "
