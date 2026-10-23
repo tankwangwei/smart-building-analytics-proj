@@ -2,7 +2,7 @@
 valid_reporting_intervals,17346.0
 valid_reporting_hours,4336.5
 estimated_energy_kWh_valid_intervals,63106.35613095238
-estimated_after_hours_kWh_valid_intervals,1333.1634999999999
-after_hours_energy_pct_valid_intervals,2.112566121285064
+estimated_after_hours_kWh_valid_intervals,1333.1635
+after_hours_energy_pct_valid_intervals,2.1125661212850644
 15min_peak_kW,120.41533333333332
 load_factor,0.1208514765795099

@@ -111,6 +111,8 @@ def payload(details, zone_loads, summaries, analysed_floors, start, days, runnin
             "startIndex": int(np.argmax(slots.strftime("%H:%M") == "14:00")) if days else 0}
 
 
-def html(data):
+def html(data, compact=False):
+    """compact=True hides the KPI, layer and legend panels behind one button, for embedding in a narrow column."""
+    data = {**data, "compact": compact}
     # "</" inside the JSON would end the <script> block early
     return TEMPLATE.read_text(encoding="utf-8").replace("__PAYLOAD__", json.dumps(data).replace("</", "<\\/"))

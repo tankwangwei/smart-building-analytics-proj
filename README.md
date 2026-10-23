@@ -10,7 +10,7 @@ The raw data file `combined_by_floor.csv` (618 MB) is too large for GitHub and i
 
 Run the dashboard locally:
 
-```
+python -m streamlit run dashboard/app.py```
 pip install -r dashboard/requirements.txt
-python -m streamlit run dashboard/app.py
+
 ```

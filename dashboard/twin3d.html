@@ -45,6 +45,15 @@
   .flag { color: #ff6b6b; } .ok { color: #3ddc97; } .amb { color: #ffc24b; }
   .label3d { font: 600 11px "Segoe UI", sans-serif; color: #b9c7e3; text-shadow: 0 0 4px #000; pointer-events: none; }
   #err { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; text-align: center; padding: 30px; }
+  /* Compact mode (Overview): building, clock and timeline only; layers and legend open from one button */
+  #tools-toggle { display: none; position: absolute; top: 12px; right: 12px; z-index: 4; }
+  body.compact #tools-toggle { display: block; }
+  body.compact #hud-kpis, body.compact #legend, body.compact #tools { display: none; }
+  body.compact.show-tools #tools { display: flex; top: 50px; right: 12px; left: auto; }
+  body.compact.show-tools #legend { display: block; }
+  body.compact #hud-title { min-width: 0; padding: 8px 10px; }
+  body.compact #hud-title .clock { font-size: 17px; }
+  body.compact #detail { top: 50px; width: 260px; }
 </style>
 </head>
 <body>
@@ -64,26 +73,18 @@
     <div class="kpi"><div class="v mono flag" id="k-flag">-</div><div class="l">AC flagged</div></div>
     <div class="kpi"><div class="v mono amb" id="k-lah">-</div><div class="l">Lights after hours</div></div>
   </div>
+  <button id="tools-toggle" class="panel">☰ Layers</button>
   <div id="tools" class="panel">
     <div class="sec">Colour zones by</div>
     <select id="metric">
-      <optgroup label="AC (at this time)">
+      <optgroup label="At this moment">
         <option value="status">Anomaly status</option>
-        <option value="power">AC power (kW)</option>
-        <option value="deviation">Power vs expected (kW)</option>
+        <option value="deviation">AC power vs expected (kW)</option>
         <option value="temp">Indoor temperature (°C)</option>
-      </optgroup>
-      <optgroup label="Lighting & plugs (at this time)">
-        <option value="light">Lighting (kW)</option>
         <option value="lah">Lights on after hours</option>
-        <option value="plug">Plug loads (kW)</option>
-        <option value="lux">Daylight (lux)</option>
       </optgroup>
-      <optgroup label="Jul–Dec 2019 summary">
-        <option value="excess">Excess AC kWh (est.)</option>
-        <option value="priority">Priority score</option>
-        <option value="peers">AC power vs same unit on other floors</option>
-        <option value="comfort">% running time 23–26 °C</option>
+      <optgroup label="Whole review period">
+        <option value="level">Priority level (High / Medium / Low)</option>
       </optgroup>
     </select>
     <div class="sec">Floors</div>
@@ -125,6 +126,8 @@ import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 
 const P = __PAYLOAD__;
 const $ = (id) => document.getElementById(id);
+if (P.compact) document.body.classList.add("compact");
+$("tools-toggle").onclick = () => document.body.classList.toggle("show-tools");
 const G = P.geometry;
 const [FX0, FX1, FY0, FY1] = G.footprint;
 const W = FX1 - FX0, D = FY1 - FY0, CX = (FX0 + FX1) / 2, CY = (FY0 + FY1) / 2;
@@ -386,18 +389,14 @@ function stopsColor(stops, v) {
 const STATUS = { "-1": "#3a4152", 0: "#6b7383", 1: "#1baf7a", 2: "#e34948" };
 const METRICS = {
   status:    { ac: true, legend: "swatch", items: [["#e34948", "Flagged"], ["#1baf7a", "Running normally"], ["#6b7383", "Off"], ["#3a4152", "No reading"]] },
-  power:     { ac: true, title: "AC power", unit: "kW", lo: 0, hi: 40, scale: "blue" },
   deviation: { ac: true, title: "AC power minus expected", unit: "kW", lo: -15, hi: 15, scale: "div" },
   temp:      { ac: true, title: "Indoor temperature", unit: "°C", lo: 18, hi: 31, scale: "temp", note: "Grey = inside the 23–26 °C comfort band" },
-  light:     { title: "Lighting", unit: "kW", lo: 0, hi: 6, scale: "amber", glow: true },
   lah:       { legend: "swatch", glow: true, items: [["#ffc24b", "Lights on, floor normally off"], ["#8c93a3", "Lights on, normal hours"], ["#2a2f3b", "Lights off"]] },
-  plug:      { title: "Plug loads", unit: "kW", lo: 0, hi: 2, scale: "violet", glow: true },
-  lux:       { title: "Daylight at the sensor", unit: "lux", lo: 0, hi: 80, scale: "sun", glow: true },
-  excess:    { ac: true, period: true, title: "Excess AC energy, Jul–Dec", unit: "kWh", lo: 0, hi: 6000, scale: "blue", key: "excess" },
-  priority:  { ac: true, period: true, title: "Priority score, Jul–Dec", unit: "", lo: 0, hi: 6000, scale: "blue", key: "priority" },
-  peers:     { ac: true, period: true, title: "AC power vs same unit on other floors", unit: "%", lo: -80, hi: 80, scale: "div", key: "peers" },
-  comfort:   { ac: true, period: true, title: "Running time inside 23–26 °C", unit: "%", lo: 0, hi: 100, scale: "blue", key: "comfort" },
+  // Same colours as the Floors dots on the dashboard Overview; does not change as the replay plays
+  level:     { ac: true, period: true, legend: "swatch", key: "level",
+               items: [["#e5533d", "High priority"], ["#f0a03c", "Medium"], ["#3fb27f", "Low"]] },
 };
+const LEVEL_COLOUR = { High: "#e5533d", Medium: "#f0a03c", Low: "#3fb27f" };
 function colourFor(metric, v) {
   const m = METRICS[metric];
   if (m.scale === "temp") return stopsColor(ramps.temp, v);
@@ -412,6 +411,11 @@ function zoneValue(metric, f, z, i) {
     if (!u) return null;
     if (m.period) {
       const v = u.summary[m.key];
+      if (metric === "level") {
+        // summary.level looks like "🔴 High"; colour by the word
+        const word = v == null ? null : Object.keys(LEVEL_COLOUR).find((k) => v.includes(k));
+        return word ? { color: C(LEVEL_COLOUR[word]), glow: 0, value: word } : null;
+      }
       return v == null ? null : { color: colourFor(metric, v), glow: 0, value: v };
     }
     const s = u.status[i];
@@ -640,7 +644,8 @@ function renderDetail() {
   if (u && u.summary) {
     const s = u.summary;
     h += `<div class="grid"><div class="muted">Excess kWh Jul–Dec</div><div class="mono">${fmt(s.excess, 0)}</div>
-          <div class="muted">Priority rank</div><div class="mono">${s.rank ?? "–"} of ${s.of ?? "–"}</div>
+          <div class="muted">Priority</div><div class="mono">${s.level ?? "–"} · rank ${s.rank ?? "–"} of ${s.of ?? "–"}</div>
+          <div class="muted">Weighted waste kWh</div><div class="mono">${fmt(s.priority, 0)}</div>
           <div class="muted">vs same unit, other floors</div><div class="mono">${s.peers == null ? "–" : `${s.peers > 0 ? "+" : ""}${s.peers.toFixed(0)} %`}</div>
           <div class="muted">Median indoor while running</div><div class="mono">${fmt(s.median, 1, " °C")}</div></div>`;
   }
@@ -688,7 +693,11 @@ function drawTimeline() {
   g.fillStyle = "rgba(255,77,94,0.75)";
   flagged.forEach((f, i) => { if (f) g.fillRect(X(i), h - 13, Math.max(1, w / N), 3); });
   g.fillStyle = "rgba(159,176,204,0.6)";
-  for (let i = 0; i < N; i += 96) { g.fillRect(X(i), 0, 1, h - 14); g.fillText(P.times[i].slice(5, 10), X(i) + 3, 9); }
+  for (let i = 0; i < N; i += 96) {
+    const label = new Date(P.times[i].slice(0, 10) + "T00:00:00Z")
+      .toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short", timeZone: "UTC" }).replace(",", "");
+    g.fillRect(X(i), 0, 1, h - 14); g.fillText(label, X(i) + 3, 9);
+  }
 }
 
 // ---------------------------------------------------------------- camera moves

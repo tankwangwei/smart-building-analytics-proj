@@ -1,0 +1,8 @@
+# Dark "building control room" theme for the dashboard (run Streamlit from the project folder so this is picked up)
+[theme]
+base = "dark"
+primaryColor = "#3b8beb"
+backgroundColor = "#0a1322"
+secondaryBackgroundColor = "#122038"
+textColor = "#e6edf7"
+font = "sans serif"
