@@ -582,7 +582,17 @@ tm.insert(1, "Model", [("✓ " if m == selected_model else "") + MODEL_LABELS.ge
 tm["Validation MAE_kW"] = vm["MAE_kW"].reindex(tm.index)
 selected_mae = tm.loc[selected_model, "MAE_kW"]
 lastweek_mae = tm["MAE_kW"].get("M0 last week", np.nan)
-n24 = data["next24"]
+# "Next day" = the day after the timeframe. Inside Jul–Dec 2019 every day has a genuine day-ahead forecast (made with
+# data up to the midnight before) and its actual load; after 31 Dec only the 1 Jan 2020 demonstration exists.
+next_day = period_end.normalize()
+_next = fc.reindex(pd.date_range(next_day, periods=24, freq="h"))
+if _next[selected_model].notna().all():
+    n24 = pd.DataFrame({"predicted_kW": _next[selected_model], "actual_kW": _next["floor_kW"]})
+    n24_note = "day-ahead forecast made at the midnight before, shown with the actual load"
+else:
+    n24 = data["next24"][["predicted_kW"]].assign(actual_kW=np.nan)
+    n24_note = "demonstration for the day after the data ends, so there is no actual load to compare"
+HAS_ACTUAL = n24["actual_kW"].notna().any()
 peak_time, peak_kw = n24["predicted_kW"].idxmax(), n24["predicted_kW"].max()
 _common = fc[["floor_kW", selected_model]].dropna()
 error_by_hour = (_common[selected_model] - _common["floor_kW"]).abs().groupby(_common.index.hour).mean()
@@ -603,6 +613,9 @@ PRIORITY_HELP = ("Units are ranked by weighted waste (kWh) = the estimated extra
 def next_day_chart(height):
     fig = go.Figure(go.Scatter(x=n24.index, y=n24["predicted_kW"], mode="lines+markers",
                                line=dict(color=ACTUAL, width=2), marker=dict(size=6), name="Forecast"))
+    if HAS_ACTUAL:
+        fig.add_trace(go.Scatter(x=n24.index, y=n24["actual_kW"], mode="lines", name="Actual",
+                                 line=dict(color=EXPECTED, width=2, dash="dash")))
     fig.add_annotation(x=peak_time, y=peak_kw, text=f"Peak {peak_time:%H:%M}: {peak_kw:.0f} kW", showarrow=True, arrowhead=2)
     style(fig, height, "Predicted AC demand (kW)")
     fig.update_xaxes(tickformat="%H:%M", hoverformat="%a %d %b %Y, %H:%M")
@@ -741,8 +754,11 @@ def assistant_findings():
     for u, c in coverage[coverage.lt(.95)].sort_values().head(1).items():
         add("Info", "bell", f"{short(u)} missing {100 * (1 - c):.0f}% of readings", "check the meter",
             "Check the meter and its connection; flags for this unit may be incomplete.", "Priority list", 1 - c)
-    add("Info", "peak", f"Tomorrow's peak ≈ {peak_kw:.0f} kW at {peak_time:%H:%M}", "stagger the start-up",
-        f"Next-day forecast ({peak_time:%a %d %b}). Stagger the start-up to flatten the peak.", "Forecast", 0)
+    actual_peak = f"; the actual peak was {n24['actual_kW'].max():.0f} kW" if HAS_ACTUAL else ""
+    add("Info", "peak", f"Next day ({peak_time:%a %d %b}) peak ≈ {peak_kw:.0f} kW at {peak_time:%H:%M}",
+        "stagger the start-up",
+        f"Day-ahead forecast for the day after this timeframe{actual_peak}. Stagger the start-up to flatten the peak.",
+        "Forecast", 0)
     return sorted(found, key=lambda x: x["rank"])
 
 
@@ -1126,12 +1142,19 @@ with tab_forecast:
                "Public holidays and closures are not modelled, so those days show large misses.")
 
     section(f"Next-day forecast · {peak_time:%a %d %b %Y}",
-            help="The demonstration forecast for the day after the data ends.")
+            help="The day after the selected timeframe (change it at the top). " + n24_note[0].upper() + n24_note[1:] + ".")
     c1, c2 = st.columns([3, 1], gap="large")
     c1.plotly_chart(next_day_chart(300), width="stretch")
+    c1.caption(f"{peak_time:%A %d %B %Y}: {n24_note}.")
     c2.metric("Expected peak", f"{peak_kw:.0f} kW", f"at {peak_time:%H:%M}", delta_color="off")
-    c2.metric("Expected daily energy", f"{n24['predicted_kW'].sum():,.0f} kWh")
-    c2.metric("Typical error at the peak hour", f"±{error_by_hour.get(peak_time.hour, selected_mae):.0f} kW")
+    if HAS_ACTUAL:
+        actual_peak_time = n24["actual_kW"].idxmax()
+        c2.metric("Actual peak", f"{n24['actual_kW'].max():.0f} kW", f"at {actual_peak_time:%H:%M}", delta_color="off")
+        c2.metric("This day's average error", f"{(n24['predicted_kW'] - n24['actual_kW']).abs().mean():.1f} kW",
+                  help=f"Typical for Jul–Dec 2019: {selected_mae:.1f} kW")
+    else:
+        c2.metric("Expected daily energy", f"{n24['predicted_kW'].sum():,.0f} kWh")
+        c2.metric("Typical error at the peak hour", f"±{error_by_hour.get(peak_time.hour, selected_mae):.0f} kW")
     quiet = n24.between_time("08:00", "16:59")
     quiet = [t for t in quiet.index if quiet.loc[t, "predicted_kW"] < 0.2 * peak_kw]
     better = f" ({100 * (1 - selected_mae / lastweek_mae):.0f}% better than repeating last week)" if np.isfinite(lastweek_mae) else ""
