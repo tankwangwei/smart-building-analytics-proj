@@ -7,6 +7,13 @@
 
 **Timeframe** (top right, every tab): Day / Week / Month / Jul–Dec plus a date. Every total, colour, alert and finding is worked out for that timeframe. "Normal" is always learned from Jul 2018 – Jun 2019, and forecast accuracy is always scored on Jul–Dec 2019.
 
+**Building opening hours and Thai public holidays** (sidebar → Building opening hours). Defaults: open Mon–Fri 07:30–17:30, closed on public holidays. Those defaults follow the data, since the dataset has no official hours.
+- **Holiday list:** `dashboard/thai_holidays.py` has the official holidays and substitution days for Jul 2018 – Jan 2020, plus one closure seen in the data (Mon 30 Dec 2019). Every listed holiday in Jul–Dec 2019 shows almost no AC use.
+- **When the building is closed,** normal AC use counts as zero. Any AC running is flagged as after hours, and all its energy counts as waste.
+- **Forecast:** a public holiday is a known closure, so demand is forecast as zero. This cuts the building forecast's average error from 13.5 to 8.5 kW per hour.
+- **Simulator:** has an "AC off on public holidays" option.
+- **Academic calendar:** not used. Chamchuri 5 is an administrative and office building, so semester breaks matter little.
+
 **Smart assistant** (Overview): rule-based checks on the timeframe, written as what to look at next. It flags:
 - units off during their usual hours while the building runs (tripped breaker or controller);
 - 3 or more units on one floor off together (shared chilled water, air-handling unit or electrical supply);

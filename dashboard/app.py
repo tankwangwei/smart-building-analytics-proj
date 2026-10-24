@@ -3,6 +3,7 @@
 Run `python run_all_floors.py` first (it writes ac_analysis_outputs/floor_<n>/), then:
     streamlit run dashboard/app.py
 """
+import datetime as dt
 import os
 import re
 from pathlib import Path
@@ -14,6 +15,7 @@ import streamlit as st
 from plotly.subplots import make_subplots
 
 import twin
+from thai_holidays import HOLIDAYS, OBSERVED_CLOSURES, closure_name
 
 ROOT = Path(os.environ.get("AC_OUTPUT_FOLDER", Path(__file__).resolve().parents[1] / "ac_analysis_outputs"))
 FLOORS = sorted(int(p.name.split("_")[1]) for p in ROOT.glob("floor_*") if (p / "anomaly_15min_detail.csv").exists())
@@ -266,13 +268,28 @@ def load_floor(floor):
     return data
 
 
+CLOSED_DATES = pd.DatetimeIndex(sorted({*HOLIDAYS, *OBSERVED_CLOSURES}))
+
+
+def building_closed(dates, open_spec):
+    """True where the building is closed: a closed weekday, outside opening hours, or (if enabled) a public holiday or
+    observed closure. open_spec = (open weekdays, opening minute, closing minute, use holidays)."""
+    days, start_min, end_min, use_holidays = open_spec
+    minutes = dates.dt.hour * 60 + dates.dt.minute
+    closed = ~dates.dt.dayofweek.isin(days) | minutes.lt(start_min) | minutes.ge(end_min)
+    if use_holidays:
+        closed |= dates.dt.normalize().isin(CLOSED_DATES)
+    return closed
+
+
 def run_rules(detail, thresholds, k_iqr, k_res, on_kw, persist, use_stat, use_after, use_persist):
     """Re-apply the notebook's three flagging rules with adjustable thresholds."""
     d = detail
     upper = d["IQR_q3_kW"] + k_iqr * (d["IQR_q3_kW"] - d["IQR_q1_kW"])
     running = d["eligible"] & d["actual_kW"].gt(on_kw)
     stat = running & d["actual_kW"].gt(upper)
-    after = running & d["schedule_on"].eq(False)
+    # After hours = running outside the unit's usual schedule, or while the building is closed
+    after = running & (d["schedule_on"].eq(False) | d["closed"])
     q1r = d["unit"].map(thresholds["residual_q1_kW"])
     q3r = d["unit"].map(thresholds["residual_q3_kW"])
     above = running & d["residual_kW"].gt(q3r + k_res * (q3r - q1r))
@@ -285,12 +302,18 @@ def run_rules(detail, thresholds, k_iqr, k_res, on_kw, persist, use_stat, use_af
 
 
 @st.cache_data(show_spinner=False)
-def flags_for(floor, k_iqr, k_res, on_kw, persist, use_stat, use_after, use_persist):
+def flags_for(floor, k_iqr, k_res, on_kw, persist, use_stat, use_after, use_persist, open_spec):
     data = load(floor)
-    flags = run_rules(data["detail"], data["thresholds"], k_iqr, k_res, on_kw, persist,
-                      use_stat, use_after, use_persist)
+    detail = data["detail"].copy()
+    detail["closed"] = building_closed(detail["Date"], open_spec)
+    detail["holiday"] = detail["Date"].dt.normalize().isin(CLOSED_DATES) & open_spec[3]
+    # While the building is closed, normal AC use is zero, so all AC energy then counts as excess
+    detail.loc[detail["closed"], "expected_kW"] = 0.0
+    detail["residual_kW"] = detail["actual_kW"] - detail["expected_kW"]
+    detail["excess_kWh_est"] = detail["residual_kW"].clip(lower=0) * INTERVAL_HOURS
+    flags = run_rules(detail, data["thresholds"], k_iqr, k_res, on_kw, persist, use_stat, use_after, use_persist)
     # Replace the notebook's default-threshold flags with the recomputed ones
-    base = data["detail"].drop(columns=[c for c in flags.columns if c in data["detail"].columns])
+    base = detail.drop(columns=[c for c in flags.columns if c in detail.columns])
     return pd.concat([base, flags], axis=1)
 
 
@@ -305,7 +328,7 @@ def build_events(d, hot_weight, after_weight):
                                   excess_kWh=("excess_kWh_est", "sum"), after_hours=("after_hours", "sum"),
                                   statistical=("statistical", "any"), persistent=("persistent", "any"),
                                   hot_day=("hot_day", "any"), outdoor_C=("outdoor_temp_C", "mean"),
-                                  indoor_C=("indoor_temp_C", "mean"))
+                                  indoor_C=("indoor_temp_C", "mean"), holiday=("holiday", "any"))
     events["end"] = events["last"] + pd.Timedelta(minutes=15)
     events["duration_h"] = events["intervals"] * INTERVAL_HOURS
     events["after_hours_h"] = events["after_hours"] * INTERVAL_HOURS
@@ -319,8 +342,10 @@ def build_events(d, hot_weight, after_weight):
 
     def why(row):
         parts = []
+        if row.holiday:
+            parts.append(f"on a closure day: {closure_name(row.start.date())}")
         if row.after_hours_h:
-            parts.append(f"after-hours {row.after_hours_h:g} h")
+            parts.append(f"after hours {row.after_hours_h:g} h (building closed or unit normally off)")
         if row.persistent:
             parts.append("persistent ≥ threshold")
         if row.statistical:
@@ -414,13 +439,13 @@ def weighted_column(label="= Weighted waste (kWh)"):
 
 
 @st.cache_data(show_spinner=False)
-def period_kpis(floor, start, end):
-    """AC energy, energy outside each unit's usual schedule, and 15-minute peak for the review period."""
+def period_kpis(floor, start, end, open_spec):
+    """AC energy, energy used while the building is closed, and 15-minute peak for the timeframe."""
     det = load(floor)["detail"]
     det = det.loc[det["Date"].ge(start) & det["Date"].lt(end)]
     valid = det.loc[det["eligible"]]
     energy = valid["actual_kW"].sum() * INTERVAL_HOURS
-    after = valid.loc[valid["schedule_on"].eq(False), "actual_kW"].sum() * INTERVAL_HOURS
+    after = valid.loc[building_closed(valid["Date"], open_spec), "actual_kW"].sum() * INTERVAL_HOURS
     total = det.pivot_table(index="Date", columns="unit", values="actual_kW", aggfunc="first")
     peak = total.sum(axis=1, min_count=total.shape[1]).max()
     return {"energy_kWh": energy, "after_kWh": after, "after_pct": 100 * after / energy if energy else np.nan,
@@ -492,7 +517,9 @@ scope_desc = (f"Floors {', '.join(map(str, FLOORS[:-1]))} and {FLOORS[-1]} · {l
               else f"{SCOPE_NAME} · {len(units)} AC units")
 st.caption(f"**{scope_desc}** · **{period_start:%a %d %b %Y}"
            + (f" – {period_end - pd.Timedelta(days=1):%a %d %b %Y}" if PERIOD_DAYS > 1 else "")
-           + f"** ({PERIOD_DAYS} day{'s' if PERIOD_DAYS > 1 else ''}) · normal pattern learned from Jul 2018 – Jun 2019 · "
+           + f"** ({PERIOD_DAYS} day{'s' if PERIOD_DAYS > 1 else ''})"
+           + (f" · 🎌 **{closure_name(period_start.date())}**" if PERIOD_DAYS == 1 and closure_name(period_start.date()) else "")
+           + " · normal pattern learned from Jul 2018 – Jun 2019 · "
              "data: CU-BEMS, Chulalongkorn University, Bangkok · weather: Open-Meteo")
 
 with st.sidebar:
@@ -510,6 +537,25 @@ with st.sidebar:
         on_kw = st.slider("'Running' threshold (kW)", 0.1, 5.0, 0.5, 0.1,
                           help="Below this power the unit counts as 'off', and nothing below it is ever flagged. "
                                "Default 0.5 kW.")
+    with st.expander("Building opening hours"):
+        st.caption("Not in the dataset, so set these to the building's real hours. Defaults follow the data: on weekdays "
+                   "the AC units run from about 07:45 to 16:45.")
+        open_days = st.multiselect("Open on", DAYS, default=DAYS[:5], key="open_days")
+        open_from, open_to = st.slider("Opening hours", value=(dt.time(7, 30), dt.time(17, 30)), step=dt.timedelta(minutes=15),
+                                       format="HH:mm", key="open_hours",
+                                       help="While the building is closed, normal AC use counts as zero: any AC running "
+                                            "is flagged as after-hours and all its energy counts as waste.")
+        use_holidays = st.checkbox("Closed on Thai public holidays", True, key="use_holidays",
+                                   help="Official holidays and substitution days, plus closures seen in the data. Also "
+                                        "used by the forecast: a holiday is a known closure, so demand is forecast as zero.")
+        if use_holidays:
+            in_range = {d: n for d, n in {**HOLIDAYS, **OBSERVED_CLOSURES}.items() if data_first <= d <= data_last}
+            st.caption("Closure days in the reporting period: " + "; ".join(f"{d:%d %b} {n.split(' (')[0]}"
+                                                                           for d, n in sorted(in_range.items())))
+OPEN = (tuple(DAYS.index(x) for x in open_days), open_from.hour * 60 + open_from.minute,
+        open_to.hour * 60 + open_to.minute, use_holidays)
+OPEN_TEXT = (("Mon–Fri" if open_days == DAYS[:5] else ", ".join(open_days) or "never")
+             + f" {open_from:%H:%M}–{open_to:%H:%M}" + (", closed on public holidays" if use_holidays else ""))
 
 # All three flagging rules are always on, and priorities use fixed weights:
 # after-hours waste counts 1.5x (usually a quick timer fix), hot-day waste counts 0.5x (partly weather-driven).
@@ -523,19 +569,20 @@ def in_period(frame):
 
 
 # ---------------------------------------------------------------- results shared by every tab
-d = in_period(flags_for(floor, k_iqr, k_res, on_kw, persist, use_stat, use_after, use_persist))
+d = in_period(flags_for(floor, k_iqr, k_res, on_kw, persist, use_stat, use_after, use_persist, OPEN))
 detail = in_period(detail_all)
 events = build_events(d, hot_weight, after_weight)
 priority = unit_priority(d, events, PERIOD_DAYS)
-kpis = period_kpis(floor, period_start, period_end)
+kpis = period_kpis(floor, period_start, period_end, OPEN)
 sens = data["sensitivity"]
 
 # When the waste happens (flagged excess kWh by type of time)
 flag_rows = d.loc[d["flagged"]]
 _dow, _hour = flag_rows["Date"].dt.dayofweek, flag_rows["Date"].dt.hour
-WHEN_ORDER = ["Weekday 08:00–17:00", "Weekday, other hours", "Saturday", "Sunday"]
-when_kwh = (flag_rows.groupby(np.select([_dow.eq(5), _dow.eq(6), _hour.between(8, 16)], WHEN_ORDER[2:] + WHEN_ORDER[:1],
-                                        WHEN_ORDER[1]))["excess_kWh_est"].sum().reindex(WHEN_ORDER, fill_value=0))
+WHEN_ORDER = ["Weekday 08:00–17:00", "Weekday, other hours", "Saturday", "Sunday", "Public holiday"]
+when_kwh = (flag_rows.groupby(np.select([flag_rows["holiday"], _dow.eq(5), _dow.eq(6), _hour.between(8, 16)],
+                                        ["Public holiday", "Saturday", "Sunday", "Weekday 08:00–17:00"],
+                                        "Weekday, other hours"))["excess_kWh_est"].sum().reindex(WHEN_ORDER, fill_value=0))
 when_pct = 100 * when_kwh / max(1e-9, when_kwh.sum())
 after_hours_pct = 100 * flag_rows.loc[flag_rows["after_hours"], "excess_kWh_est"].sum() / max(1e-9, flag_rows["excess_kWh_est"].sum())
 top = priority.iloc[0] if len(priority) else None
@@ -543,7 +590,7 @@ top = priority.iloc[0] if len(priority) else None
 # Every floor, for Compare floors and the twin: same rules, same review period
 floor_rows, unit_tables, details, peer_mean = [], [], {}, {}
 for f in FLOORS:
-    fd = in_period(flags_for(f, k_iqr, k_res, on_kw, persist, use_stat, use_after, use_persist))
+    fd = in_period(flags_for(f, k_iqr, k_res, on_kw, persist, use_stat, use_after, use_persist, OPEN))
     fev = build_events(fd, hot_weight, after_weight)
     fpr = unit_priority(fd, fev, PERIOD_DAYS)
     fpr.insert(0, "floor", f)
@@ -551,7 +598,7 @@ for f in FLOORS:
     details[f] = fd
     for u, part in fd.loc[fd["eligible"]].groupby("unit"):
         peer_mean[u] = part["actual_kW"].mean()
-    fk = period_kpis(f, period_start, period_end)
+    fk = period_kpis(f, period_start, period_end, OPEN)
     s_ = load(f)["sensitivity"]
     floor_rows.append({"Floor": f"Floor {f}", "AC energy kWh": fk["energy_kWh"], "After-hours %": fk["after_pct"],
                        "15-min peak kW": fk["peak_kW"], "Flagged events": len(fev),
@@ -585,10 +632,16 @@ worst_floor = floors_table.loc[floors_table["Weighted waste kWh"].idxmax()]
 outlier = allunits.loc[allunits["vs_peers_pct"].idxmax()] if allunits["vs_peers_pct"].notna().any() else None
 
 # Forecast results (fixed test period Jul–Dec 2019)
-fc = data["forecast"]
-tm = data["test_metrics"].copy().sort_values("MAE_kW")
+fc = data["forecast"].copy()
+forecast_models = [c for c in fc.columns if c != "floor_kW"]
 vm = data["validation_metrics"]
 selected_model = data.get("selected_model") or vm["MAE_kW"].idxmin()
+mae_without_holidays = forecast_metrics(fc, forecast_models).loc[selected_model, "MAE_kW"]
+if use_holidays:
+    # A public holiday is known in advance, so a forecast issued the midnight before can expect the building closed
+    fc.loc[fc.index.normalize().isin(CLOSED_DATES), forecast_models] = 0.0
+# Scored on the same hours for every method, after the holiday adjustment
+tm = forecast_metrics(fc, forecast_models).sort_values("MAE_kW")
 tm.insert(0, "Rank", range(1, len(tm) + 1))
 tm.insert(1, "Model", [("✓ " if m == selected_model else "") + MODEL_LABELS.get(m, m) for m in tm.index])
 tm["Validation MAE_kW"] = vm["MAE_kW"].reindex(tm.index)
@@ -598,12 +651,20 @@ lastweek_mae = tm["MAE_kW"].get("M0 last week", np.nan)
 # data up to the midnight before) and its actual load; after 31 Dec only the 1 Jan 2020 demonstration exists.
 next_day = period_end.normalize()
 _next = fc.reindex(pd.date_range(next_day, periods=24, freq="h"))
-if _next[selected_model].notna().all():
+if next_day.date() <= data_last:
+    # A few hours can be missing where a floor's meter had a gap; those hours are simply left blank
     n24 = pd.DataFrame({"predicted_kW": _next[selected_model], "actual_kW": _next["floor_kW"]})
     n24_note = "day-ahead forecast made at the midnight before, shown with the actual load"
+    if n24["predicted_kW"].isna().any():
+        n24_note += f" ({int(n24['predicted_kW'].isna().sum())} hour(s) missing because of meter gaps)"
+        n24["predicted_kW"] = n24["predicted_kW"].fillna(0.0)
 else:
     n24 = data["next24"][["predicted_kW"]].assign(actual_kW=np.nan)
     n24_note = "demonstration for the day after the data ends, so there is no actual load to compare"
+NEXT_CLOSURE = closure_name(next_day.date()) if use_holidays else None
+if NEXT_CLOSURE:
+    n24["predicted_kW"] = 0.0
+    n24_note = f"public holiday ({NEXT_CLOSURE}), so the building is expected closed"
 HAS_ACTUAL = n24["actual_kW"].notna().any()
 peak_time, peak_kw = n24["predicted_kW"].idxmax(), n24["predicted_kW"].max()
 _common = fc[["floor_kW", selected_model]].dropna()
@@ -640,7 +701,7 @@ def twin_frame(start, days, compact, height, start_time=None):
     twin_floors = FLOORS if floor == ALL else [floor]
     details_full, loads, summaries = {}, {}, {}
     for f in twin_floors:
-        details_full[f] = flags_for(f, k_iqr, k_res, on_kw, persist, use_stat, use_after, use_persist)
+        details_full[f] = flags_for(f, k_iqr, k_res, on_kw, persist, use_stat, use_after, use_persist, OPEN)
         loads[f] = load(f)["zone_loads"]
         fpr = next(t for t in unit_tables if (t["floor"] == f).all())
         fsens = load(f)["sensitivity"]
@@ -667,7 +728,7 @@ def twin_frame(start, days, compact, height, start_time=None):
 
 when_top = when_pct.idxmax()
 when_phrase = {"Weekday 08:00–17:00": "during weekday working hours", "Weekday, other hours": "on weekdays outside 08:00–17:00",
-               "Saturday": "on Saturdays", "Sunday": "on Sundays"}[when_top]
+               "Saturday": "on Saturdays", "Sunday": "on Sundays", "Public holiday": "on public holidays"}[when_top]
 TARIFF_THB = 4.2  # same default as the simulator; an assumption
 outdoor_mean = in_period(data["weather"].reset_index().rename(columns={"index": "Date"}))["outdoor_temp_C"].mean()
 
@@ -758,6 +819,17 @@ def assistant_findings():
             "check this unit's schedule", "The same unit on the other floors uses much less, so look at this unit and its schedule.",
             "Compare floors", outlier["vs_peers_pct"] / 10)
 
+    # AC running on a public holiday or observed closure day
+    on_holiday = valid.loc[valid["holiday"] & valid["running"]]
+    if len(on_holiday):
+        kwh = on_holiday["actual_kW"].sum() * INTERVAL_HOURS
+        days_on = sorted(on_holiday["Date"].dt.date.unique())
+        names = "; ".join(f"{d:%a %d %b} ({closure_name(d).split(' (')[0]})" for d in days_on[:3])
+        add("Check", "bell", f"AC ran on {len(days_on)} public holiday{'s' if len(days_on) > 1 else ''}",
+            f"{kwh:,.0f} kWh · check bookings or timers",
+            f"The building should be closed: {names}. All of this energy counts as waste unless the day was booked.",
+            "Priority list", 25 + kwh / 100)
+
     # Comfort, data quality and tomorrow's load
     if pd.notna(indoor_now) and indoor_now < 23:
         add("Info", "snow", f"Zones overcooled at {indoor_now:.1f} °C", "raise the setpoint · see simulator",
@@ -767,10 +839,14 @@ def assistant_findings():
         add("Info", "bell", f"{short(u)} missing {100 * (1 - c):.0f}% of readings", "check the meter",
             "Check the meter and its connection; flags for this unit may be incomplete.", "Priority list", 1 - c)
     actual_peak = f"; the actual peak was {n24['actual_kW'].max():.0f} kW" if HAS_ACTUAL else ""
-    add("Info", "peak", f"Next day ({peak_time:%a %d %b}) peak ≈ {peak_kw:.0f} kW at {peak_time:%H:%M}",
-        "stagger the start-up",
-        f"Day-ahead forecast for the day after this timeframe{actual_peak}. Stagger the start-up to flatten the peak.",
-        "Forecast", 0)
+    if NEXT_CLOSURE:
+        add("Info", "peak", f"Next day ({next_day:%a %d %b}) is a public holiday", "expect the building closed",
+            f"{NEXT_CLOSURE}. The forecast expects no AC load{actual_peak}. Check that timers are off.", "Forecast", 0)
+    else:
+        add("Info", "peak", f"Next day ({peak_time:%a %d %b}) peak ≈ {peak_kw:.0f} kW at {peak_time:%H:%M}",
+            "stagger the start-up",
+            f"Day-ahead forecast for the day after this timeframe{actual_peak}. Stagger the start-up to flatten the peak.",
+            "Forecast", 0)
     return sorted(found, key=lambda x: x["rank"])
 
 
@@ -830,7 +906,11 @@ with tab_overview:
                  + f'<div class="legend-dots">{legend_note}<br>{legend}</div>'
                  + f'<div class="load-line">AC energy <b>{kpis["energy_kWh"]:,.0f} kWh</b> · '
                    f'≈ <b>{kpis["energy_kWh"] * TARIFF_THB:,.0f} THB</b><br>'
-                   f'<span style="color:#9fb0cc;font-size:.78rem">{PERIOD} · at {TARIFF_THB} THB/kWh (assumed)</span></div>')
+                   f'of which <b>{kpis["after_kWh"]:,.0f} kWh</b>'
+                   + (f' ({kpis["after_pct"]:.1f}%)' if pd.notna(kpis["after_pct"]) else "")
+                   + ' while the building was closed<br>'
+                   f'<span style="color:#9fb0cc;font-size:.78rem">{PERIOD} · at {TARIFF_THB} THB/kWh (assumed) · '
+                   f'open {OPEN_TEXT}</span></div>')
         with st.container(key="card-alerts"):
             items = []
             for _, e in events.head(4).iterrows():
@@ -911,7 +991,7 @@ with tab_priority:
                  "weekday and time of day (darker = more often).")
     c1, c2 = st.columns([2, 3], gap="large")
     fig = go.Figure(go.Bar(x=when_pct.values, y=when_pct.index, orientation="h",
-                           marker_color=[ACTUAL, FLAG, FLAG, FLAG], text=[f"{v:.0f}%" for v in when_pct.values],
+                           marker_color=[ACTUAL, FLAG, FLAG, FLAG, FLAG], text=[f"{v:.0f}%" for v in when_pct.values],
                            textposition="outside", cliponaxis=False,
                            hovertemplate="%{y}: %{x:.1f}% of extra energy<extra></extra>"))
     style(fig, 300, None, "% of flagged extra energy (red = outside weekday working hours)")
@@ -1016,10 +1096,10 @@ with tab_compare:
                 hide_index=True, width="stretch", height=table_height(len(floors_table), 300),
                 column_config={"AC energy kWh": st.column_config.NumberColumn(format="%.0f"),
                                "Weighted waste kWh": st.column_config.NumberColumn(format="%.0f"),
-                               "After-hours %": st.column_config.NumberColumn("Outside schedule %", format="%.1f"),
+                               "After-hours %": st.column_config.NumberColumn("Used while closed %", format="%.1f"),
                                "Median indoor °C (running)": st.column_config.NumberColumn("Indoor °C", format="%.1f")})
     for col, metric, title in [(c1, "Weighted waste kWh", "Weighted waste (kWh)"),
-                               (c2, "After-hours %", "Outside schedule (%)")]:
+                               (c2, "After-hours %", "Used while closed (%)")]:
         fig = go.Figure(go.Bar(x=floors_table["Floor"].str.replace("Floor ", "F"), y=floors_table[metric],
                                marker_color=[FLAG if f == worst_floor["Floor"] else ACTUAL for f in floors_table["Floor"]],
                                text=floors_table[metric].map(lambda v: f"{v:,.0f}" if v >= 100 else f"{v:.1f}"),
@@ -1103,6 +1183,10 @@ with tab_forecast:
                       "weather forecast, so their errors are optimistic.")
 
     section("Next-day hourly demand forecast: accuracy", help=forecast_help)
+    if use_holidays:
+        st.caption(f"Uses the Thai public-holiday calendar: a holiday is known in advance, so demand is forecast as zero. "
+                   f"This cuts the chosen method's average error from {mae_without_holidays:.1f} to {selected_mae:.1f} kW "
+                   "per hour. Turn it off under Building opening hours in the sidebar.")
     left, right = st.columns([1, 1], gap="large")
     with left:
         st.dataframe(tm[["Rank", "Model", "MAE_kW", "peak_hour_MAE_kW"]].round(2), hide_index=True,
@@ -1213,13 +1297,17 @@ with tab_sim:
         weekend_on = c4.checkbox("Keep weekends running", True,
                                  help="Ticked: weekends are allowed (no change). Unticked: the proposal is no AC at "
                                       "weekends, so all weekend AC energy counts as saved.")
+        holidays_off = c4.checkbox("AC off on public holidays", False,
+                                   help="Proposal: no AC on Thai public holidays and closure days, so any AC energy on "
+                                        "those days counts as saved.")
 
     sim = detail.loc[detail["eligible"] & detail["actual_kW"].notna(),
                      ["Date", "unit", "actual_kW", "indoor_temp_C"]].copy()
     hour = sim["Date"].dt.hour + sim["Date"].dt.minute / 60
     weekend = sim["Date"].dt.dayofweek >= 5
     in_window = hour.ge(start_h) & hour.lt(stop_h)
-    sim["outside_window"] = (~in_window & ~weekend) | (weekend & (not weekend_on))
+    sim["outside_window"] = ((~in_window & ~weekend) | (weekend & (not weekend_on))
+                             | (holidays_off & sim["Date"].dt.normalize().isin(CLOSED_DATES)))
     sim["running"] = sim["actual_kW"].gt(on_kw)
     sim["slope"] = sim["unit"].map(slope).fillna(0)
     # Each zone's current "effective setpoint" = median indoor temperature while its unit runs
