@@ -77,6 +77,18 @@ h3 {font-size: 1.05rem !important; padding: 1rem 0 .1rem 0 !important;}
 .legend-dots {font-size: .75rem; color: #9fb0cc; margin-top: .4rem;}
 .legend-dots .dot {width: 9px; height: 9px; margin: 0 4px 0 10px;}
 .load-line {margin-top: .7rem; padding-top: .6rem; border-top: 1px solid rgba(140,170,220,.12); font-size: .88rem;}
+/* Smart assistant: hovering an item highlights it and slides open the reasoning ("why") under the action */
+.item.ai {border-radius: 12px; padding: .55rem .5rem; margin: 0 -.5rem; transition: background .2s ease;}
+.item.ai:hover {background: rgba(90,169,255,.08);}
+.item.ai .why {max-height: 0; opacity: 0; overflow: hidden; transform: translateY(-4px);
+               transition: max-height .3s ease, opacity .25s ease, transform .25s ease, margin .3s ease;
+               font-size: .78rem; line-height: 1.45; color: #c9d6ea; border-left: 2px solid var(--sev);
+               padding-left: .6rem; margin-top: 0;}
+.item.ai:hover .why {max-height: 220px; opacity: 1; transform: none; margin-top: .45rem;}
+.item.ai .why .meta {display: flex; gap: 6px; align-items: center; margin-top: .4rem; flex-wrap: wrap;}
+.item.ai .chip {font-size: .68rem; padding: 1px 8px; border-radius: 999px; border: 1px solid rgba(140,170,220,.3);
+                color: #9fb0cc;}
+.item.ai .chip.sev {color: var(--sev); border-color: var(--sev); font-weight: 600; letter-spacing: .04em;}
 .takeaway {border-left: 3px solid #3b8beb; background: rgba(59,139,235,.10); border-radius: 0 .4rem .4rem 0;
            padding: .55rem .9rem; line-height: 1.5;}
 </style>""", unsafe_allow_html=True)
@@ -696,20 +708,20 @@ def assistant_findings():
         f = hours.idxmax()
         add("Critical", "building", f"{together.loc[f].max()} units on Floor {f} off together",
             "check chilled water, AHU or power feed",
-            f"{hours[f]:g} h from {together.loc[f].index.min():%a %d %b %H:%M} while the rest of the building ran. "
+            f"{hours[f]:.0f} h from {together.loc[f].index.min():%a %d %b %H:%M} while the rest of the building ran. "
             "Suspect a shared supply: chilled water, the air-handling unit or the electrical feed.", "Digital twin", hours[f])
     single = down.groupby("unit").size() * INTERVAL_HOURS
     for u, h in single[single.ge(max(1, .05 * days))].sort_values(ascending=False).head(2).items():
         n = down.loc[down["unit"].eq(u), "Date"].dt.normalize().nunique()
         add("Check", "bell", f"{short(u)} off in its usual hours", f"{h:.0f} h · check breaker or controller",
-            f"{h:g} h on {n} day{'s' if n > 1 else ''} while other units ran. Check for a tripped breaker, a controller "
+            f"{h:.0f} h on {n} day{'s' if n > 1 else ''} while other units ran. Check for a tripped breaker, a controller "
             "fault or a manual switch-off.", "Priority list → Inspect a unit", h)
 
     # Running but the zone stays warm: the classic sign of low refrigerant or restricted airflow
     warm = valid.loc[valid["running"] & valid["indoor_temp_C"].gt(26)].groupby("unit").size() * INTERVAL_HOURS
     for u, h in warm[warm.ge(max(1, .1 * days))].sort_values(ascending=False).head(2).items():
         add("Check", "thermo", f"{short(u)} running, zone stays above 26 °C",
-            f"{h:.0f} h · suspect refrigerant leak or dirty filter", f"{h:g} h of running with the zone still warm. Suspect low refrigerant (a leak), a blocked filter or a "
+            f"{h:.0f} h · suspect refrigerant leak or dirty filter", f"{h:.0f} h of running with the zone still warm. Suspect low refrigerant (a leak), a blocked filter or a "
             "dirty coil.", "Priority list → Inspect a unit", h)
 
     # Several units on one floor above normal at the same moment: a shared cause is more likely than unit faults
@@ -850,11 +862,13 @@ with tab_overview:
     with right:
         with st.container(key="card-findings"):
             findings = assistant_findings()
-            # Compact: coloured severity dot + title + one-line action; the reasoning shows on hover
-            items = [f'<div class="item" title="{x["severity"]}: {x["detail"]} ({x["where"]})">'
+            # Compact: coloured severity dot + title + one-line action; hovering slides open the reasoning
+            items = [f'<div class="item ai" style="--sev:{SEVERITY[x["severity"]][0]}">'
                      f'{icon(x["icon"], 18, small=True)}<div><div class="t">'
-                     f'<span class="dot" style="background:{SEVERITY[x["severity"]][0]};width:8px;height:8px;'
-                     f'margin:0 6px 1px 0"></span>{x["title"]}</div><div class="s">→ {x["action"]}</div></div></div>'
+                     f'<span class="dot" style="background:var(--sev);width:8px;height:8px;'
+                     f'margin:0 6px 1px 0"></span>{x["title"]}</div><div class="s">→ {x["action"]}</div>'
+                     f'<div class="why">{x["detail"]}<div class="meta"><span class="chip sev">{x["severity"].upper()}'
+                     f'</span><span class="chip">Look in: {x["where"]}</span></div></div></div></div>'
                      for x in findings]
             html('<div class="card-h">✦ Smart assistant <span style="font-weight:400;font-size:.75rem;color:#9fb0cc">'
                  '· hover for why</span></div>' + "".join(items[:3]))
@@ -956,7 +970,7 @@ with tab_priority:
                            "ac_priority_events.csv", "text/csv")
 
     section("Inspect a unit",
-            help="Blue = actual power, orange dashed = expected, grey dotted = the 'unusually high' limit, red dots = "
+            help="Blue = actual power, orange dashed = expected, red dots = "
                  "flagged. Lower panel: outdoor and indoor °C.")
     controls, chart = st.columns([1, 3], gap="large")
     with controls:
@@ -971,7 +985,6 @@ with tab_priority:
         fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.72, 0.28], vertical_spacing=0.06)
         fig.add_trace(go.Scatter(x=view.index, y=view["actual_kW"], name="Actual", line=dict(color=ACTUAL, width=2)), 1, 1)
         fig.add_trace(go.Scatter(x=view.index, y=view["expected_kW"], name="Expected", line=dict(color=EXPECTED, width=2, dash="dash")), 1, 1)
-        fig.add_trace(go.Scatter(x=view.index, y=view["upper_kW"], name="Statistical upper limit", line=dict(color=MUTED, width=1, dash="dot")), 1, 1)
         fl = view.loc[view["flagged"]]
         fig.add_trace(go.Scatter(x=fl.index, y=fl["actual_kW"], mode="markers", name="Flagged",
                                  marker=dict(color=FLAG, size=7, opacity=.85)), 1, 1)
