@@ -72,6 +72,9 @@
     <div class="kpi"><div class="v mono" id="k-run">-</div><div class="l">AC running</div></div>
     <div class="kpi"><div class="v mono flag" id="k-flag">-</div><div class="l">AC flagged</div></div>
     <div class="kpi"><div class="v mono amb" id="k-lah">-</div><div class="l">Lights after hours</div></div>
+    <div class="kpi" id="kw-fc"><div class="v mono" id="k-fc">-</div><div class="l">Forecast now</div></div>
+    <div class="kpi" id="kw-saved"><div class="v mono" id="k-saved">-</div><div class="l">Saved so far today</div></div>
+    <div class="kpi" id="kw-comfort"><div class="v mono" id="k-comfort">-</div><div class="l">Comfort under proposal</div></div>
   </div>
   <button id="tools-toggle" class="panel">☰ Layers</button>
   <div id="tools" class="panel">
@@ -82,6 +85,15 @@
         <option value="deviation">AC power vs expected (kW)</option>
         <option value="temp">Indoor temperature (°C)</option>
         <option value="lah">Lights on after hours</option>
+      </optgroup>
+      <optgroup label="Forecast" id="og-forecast">
+        <option value="forecast">Forecast load (kW)</option>
+        <option value="fcdev">Actual minus forecast (kW)</option>
+      </optgroup>
+      <optgroup label="What-if" id="og-whatif">
+        <option value="simkw">What-if power (kW)</option>
+        <option value="saved">Saved kW (actual − what-if)</option>
+        <option value="simtemp">What-if indoor temperature (°C)</option>
       </optgroup>
       <optgroup label="Whole review period">
         <option value="level">Priority level (High / Medium / Low)</option>
@@ -99,7 +111,7 @@
     <div class="row"><button id="reset">Reset view</button></div>
   </div>
   <div id="detail" class="panel"><button id="close">×</button><div id="detail-body"></div><canvas id="spark"></canvas>
-    <div class="muted" style="margin-top:4px">Blue = actual AC kW · orange = expected · red = flagged · line = now</div></div>
+    <div class="muted" style="margin-top:4px">Blue = actual AC kW · orange = expected · red = flagged · yellow dotted = forecast · green dashed = what-if · line = now</div></div>
   <div id="legend" class="panel"></div>
   <div id="timeline" class="panel">
     <button id="play" title="Play / pause">▶</button>
@@ -373,6 +385,7 @@ const ramps = {
   sun: ["#2a2f3b", "#6b6116", "#d9c242", "#fff6b0"],
   temp: [[18, "#2a78d6"], [22.9, "#9ec5f4"], [23, "#d9d4cc"], [26, "#d9d4cc"], [26.1, "#f2a6a5"], [31, "#c23a3a"]],
   div: [[-1, "#2a78d6"], [0, "#d9d4cc"], [1, "#c23a3a"]],
+  divrev: [[-1, "#c23a3a"], [0, "#d9d4cc"], [1, "#1baf7a"]],
 };
 const C = (hex) => new THREE.Color(hex);
 function ramp(stops, t) {
@@ -390,6 +403,11 @@ const STATUS = { "-1": "#3a4152", 0: "#6b7383", 1: "#1baf7a", 2: "#e34948" };
 const METRICS = {
   status:    { ac: true, legend: "swatch", items: [["#e34948", "Flagged"], ["#1baf7a", "Running normally"], ["#6b7383", "Off"], ["#3a4152", "No reading"]] },
   deviation: { ac: true, title: "AC power minus expected", unit: "kW", lo: -15, hi: 15, scale: "div" },
+  forecast:  { ac: true, title: "Forecast AC load", unit: "kW", lo: 0, hi: 40, scale: "blue", note: "Model forecast, not a measurement" },
+  fcdev:     { ac: true, title: "Actual minus forecast", unit: "kW", lo: -15, hi: 15, scale: "div", note: "Red = used more than forecast" },
+  simkw:     { ac: true, title: "What-if AC power", unit: "kW", lo: 0, hi: 40, scale: "blue", note: "Model estimate of the proposed setpoint/schedule" },
+  saved:     { ac: true, title: "Saved (actual − what-if)", unit: "kW", lo: -15, hi: 15, scale: "divrev", note: "Green = saved, red = costs more" },
+  simtemp:   { ac: true, title: "What-if indoor temperature", unit: "°C", lo: 18, hi: 31, scale: "temp", note: "Grey = inside the comfort band. A simplification." },
   temp:      { ac: true, title: "Indoor temperature", unit: "°C", lo: 18, hi: 31, scale: "temp", note: "Grey = inside the 23–26 °C comfort band" },
   lah:       { legend: "swatch", glow: true, items: [["#ffc24b", "Lights on, floor normally off"], ["#8c93a3", "Lights on, normal hours"], ["#2a2f3b", "Lights off"]] },
   // Same colours as the Floors dots on the dashboard Overview; does not change as the replay plays
@@ -400,7 +418,7 @@ const LEVEL_COLOUR = { High: "#e5533d", Medium: "#f0a03c", Low: "#3fb27f" };
 function colourFor(metric, v) {
   const m = METRICS[metric];
   if (m.scale === "temp") return stopsColor(ramps.temp, v);
-  if (m.scale === "div") return stopsColor(ramps.div, Math.max(-1, Math.min(1, v / m.hi)));
+  if (m.scale === "div" || m.scale === "divrev") return stopsColor(ramps[m.scale], Math.max(-1, Math.min(1, v / m.hi)));
   return ramp(ramps[m.scale], (v - m.lo) / (m.hi - m.lo));
 }
 
@@ -421,7 +439,11 @@ function zoneValue(metric, f, z, i) {
     const s = u.status[i];
     if (metric === "status") return { color: C(STATUS[s]), glow: s === 2 ? 1 : 0, value: s };
     const kw = val(u.kw, i), exp = val(u.exp, i), t = val(u.temp, i);
-    const v = metric === "power" ? kw : metric === "deviation" ? (kw == null || exp == null ? null : kw - exp) : t;
+    const fc = val(u.fc, i), sk = val(u.simkw, i);
+    const v = metric === "power" ? kw : metric === "deviation" ? (kw == null || exp == null ? null : kw - exp)
+            : metric === "forecast" ? fc : metric === "fcdev" ? (kw == null || fc == null ? null : kw - fc)
+            : metric === "simkw" ? sk : metric === "saved" ? (kw == null || sk == null ? null : kw - sk)
+            : metric === "simtemp" ? val(u.simtemp, i) : t;
     return v == null ? { color: C(STATUS[-1]), glow: 0, value: null } : { color: colourFor(metric, v), glow: 0, value: v };
   }
   if (!zl) return null;
@@ -436,6 +458,9 @@ function zoneValue(metric, f, z, i) {
   return { color: colourFor(metric, v), glow: Math.min(v / METRICS[metric].hi, 1), value: v };
 }
 
+if (!P.hasForecast) { $("og-forecast").remove(); $("kw-fc").style.display = "none"; }
+if (!P.hasWhatIf) { $("og-whatif").remove(); $("kw-saved").style.display = "none"; $("kw-comfort").style.display = "none"; }
+if (P.mode) $("scope").textContent = `${P.scope} · ${P.mode}`;
 // ---------------------------------------------------------------- state
 const state = { i: Math.min(P.startIndex, N - 1), t: Math.min(P.startIndex, N - 1), playing: false, metric: "status",
                 floor: "all", explode: 0, xray: false, selected: null, night: 0 };
@@ -499,6 +524,20 @@ function updateHUD() {
   }
   $("k-ac").textContent = `${ac.toFixed(0)} kW`; $("k-light").textContent = `${light.toFixed(1)} kW`; $("k-plug").textContent = `${plug.toFixed(1)} kW`;
   $("k-run").textContent = `${run}/${units}`; $("k-flag").textContent = flag; $("k-lah").textContent = lah;
+  if (P.hasForecast) $("k-fc").textContent = `${P.units.reduce((a, u) => a + (val(u.fc, i) || 0), 0).toFixed(0)} kW`;
+  if (P.hasWhatIf) {
+    // saved energy and comfort so far on the current day
+    const day0 = Math.floor(i / 96) * 96;
+    let kwh = 0, run = 0, ok = 0;
+    for (let j = day0; j <= i; j++) for (const u of P.units) {
+      const a = val(u.kw, j), b = val(u.simkw, j);
+      if (a != null && b != null) kwh += (a - b) * 0.25;
+      const tmp = val(u.simtemp, j);
+      if (a != null && a > P.runningKW && tmp != null) { run++; if (tmp >= P.band[0] && tmp <= P.band[1]) ok++; }
+    }
+    $("k-saved").textContent = `${kwh.toFixed(0)} kWh · ${(kwh * P.tariff).toFixed(0)} THB`;
+    $("k-comfort").textContent = run ? `${(100 * ok / run).toFixed(0)}%` : "–";
+  }
   $("tl-label").textContent = `${t.replace("T", " ")}`;
   scrub.value = i;
 }
@@ -521,6 +560,7 @@ function renderLegend() {
   if (m.legend === "swatch") h = m.items.map(([c, l]) => `<div><span class="sw" style="background:${c}"></span>${l}</div>`).join("");
   else {
     const stops = m.scale === "temp" ? ramps.temp.map(([v, c]) => `${c} ${((v - 18) / 13 * 100).toFixed(0)}%`).join(",")
+                : m.scale === "divrev" ? "#c23a3a 0%,#d9d4cc 50%,#1baf7a 100%"
                 : m.scale === "div" ? "#2a78d6 0%,#d9d4cc 50%,#c23a3a 100%" : ramps[m.scale].join(",");
     h = `<div>${m.title}${m.unit ? ` (${m.unit})` : ""}</div><div class="bar" style="background:linear-gradient(90deg,${stops})"></div>
          <div class="ends"><span>${m.lo}</span><span>${m.hi}${m.scale === "div" ? "+" : ""}</span></div>${m.note ? `<div class="muted">${m.note}</div>` : ""}`;
@@ -599,6 +639,8 @@ function zoneSummary(f, z, i, withTitle = true) {
     h += `AC${u.unit.split("_AC")[1]}: ${fmt(val(u.kw, i), 1, " kW")} (expected ${fmt(val(u.exp, i), 1)})<br>`;
     h += `Status: ${s === 2 ? `<span class="flag">flagged</span> (${reasons.join(", ")})` : s === 1 ? '<span class="ok">running normally</span>' : s === 0 ? "off" : "no reading"}<br>`;
     h += `Indoor ${fmt(val(u.temp, i), 1, " °C")} · RH ${fmt(val(u.rh, i), 0, " %")}<br>`;
+    if (u.fc) h += `Forecast ${fmt(val(u.fc, i), 1, " kW")}${u.fcLo ? ` (80%: ${fmt(val(u.fcLo, i), 0)}–${fmt(val(u.fcHi, i), 0)})` : ""}<br>`;
+    if (u.simkw) h += `What-if ${fmt(val(u.simkw, i), 1, " kW")} · ${fmt(val(u.simtemp, i), 1, " °C")}<br>`;
   }
   if (zl) {
     const l = val(zl.light, i);
@@ -645,7 +687,8 @@ function renderDetail() {
     const s = u.summary;
     h += `<div class="grid"><div class="muted">Excess kWh Jul–Dec</div><div class="mono">${fmt(s.excess, 0)}</div>
           <div class="muted">Priority</div><div class="mono">${s.level ?? "–"} · rank ${s.rank ?? "–"} of ${s.of ?? "–"}</div>
-          <div class="muted">Weighted waste kWh</div><div class="mono">${fmt(s.priority, 0)}</div>
+          <div class="muted">Triage score</div><div class="mono">${fmt(s.priority, 0)}</div>
+          <div class="muted">Confidence</div><div class="mono">${fmt(s.confidence, 0)}</div>
           <div class="muted">vs same unit, other floors</div><div class="mono">${s.peers == null ? "–" : `${s.peers > 0 ? "+" : ""}${s.peers.toFixed(0)} %`}</div>
           <div class="muted">Median indoor while running</div><div class="mono">${fmt(s.median, 1, " °C")}</div></div>`;
   }
@@ -660,7 +703,7 @@ function drawSpark(cv, u) {
   g.scale(dpr, dpr);
   g.clearRect(0, 0, w, h);
   if (!u) { g.fillStyle = "#9fb0cc"; g.fillText("No AC unit in this zone", 8, 20); return; }
-  const max = Math.max(5, ...u.kw.filter((v) => v != null), ...u.exp.filter((v) => v != null));
+  const max = Math.max(5, ...u.kw.filter((v) => v != null), ...u.exp.filter((v) => v != null), ...(u.fc || []).filter((v) => v != null));
   const X = (i) => (i / (N - 1)) * (w - 4) + 2, Y = (v) => h - 4 - (v / max) * (h - 10);
   const line = (arr, color, dash) => {
     g.beginPath(); g.setLineDash(dash || []); g.strokeStyle = color; g.lineWidth = 1.5;
@@ -668,6 +711,8 @@ function drawSpark(cv, u) {
     arr.forEach((v, i) => { if (v == null) { started = false; return; } started ? g.lineTo(X(i), Y(v)) : g.moveTo(X(i), Y(v)); started = true; });
     g.stroke(); g.setLineDash([]);
   };
+  if (u.fc) line(u.fc, "#ffc85a", [2, 2]);
+  if (u.simkw) line(u.simkw, "#1baf7a", [5, 3]);
   line(u.exp, "#eb6834", [4, 3]);
   line(u.kw, "#5cc8ff");
   g.fillStyle = "#ff4d5e";
@@ -685,11 +730,19 @@ function drawTimeline() {
   g.scale(dpr, dpr);
   const tot = P.times.map((_, i) => P.units.reduce((s, u) => s + (val(u.kw, i) || 0), 0));
   const flagged = P.times.map((_, i) => P.units.some((u) => u.status[i] === 2));
-  const max = Math.max(1, ...tot), X = (i) => (i / (N - 1)) * w;
+  const fcTot = P.hasForecast ? P.times.map((_, i) => P.units.reduce((s, u) => s + (val(u.fc, i) || 0), 0)) : [];
+  const max = Math.max(1, ...tot, ...fcTot), X = (i) => (i / (N - 1)) * w;
   g.fillStyle = "rgba(92,200,255,0.18)"; g.strokeStyle = "rgba(92,200,255,0.8)";
   g.beginPath(); g.moveTo(0, h - 14);
   tot.forEach((v, i) => g.lineTo(X(i), h - 14 - (v / max) * (h - 18)));
   g.lineTo(w, h - 14); g.closePath(); g.fill();
+  const dashed = (series, color) => {
+    g.save(); g.setLineDash([4, 3]); g.strokeStyle = color; g.lineWidth = 1.4; g.beginPath();
+    series.forEach((v, i) => (i ? g.lineTo(X(i), h - 14 - (v / max) * (h - 18)) : g.moveTo(X(i), h - 14 - (v / max) * (h - 18))));
+    g.stroke(); g.restore();
+  };
+  if (P.hasForecast) dashed(P.times.map((_, i) => P.units.reduce((s, u) => s + (val(u.fc, i) || 0), 0)), "rgba(255,200,90,0.95)");
+  if (P.hasWhatIf) dashed(P.times.map((_, i) => P.units.reduce((s, u) => s + (val(u.simkw, i) || 0), 0)), "rgba(27,175,122,0.95)");
   g.fillStyle = "rgba(255,77,94,0.75)";
   flagged.forEach((f, i) => { if (f) g.fillRect(X(i), h - 13, Math.max(1, w / N), 3); });
   g.fillStyle = "rgba(159,176,204,0.6)";

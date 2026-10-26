@@ -1,0 +1,1484 @@
+@prefix brick: <https://brickschema.org/schema/Brick#> .
+@prefix cu: <https://example.org/chamchuri5#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix ref: <https://brickschema.org/schema/Brick/ref#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+cu:Chamchuri5 a brick:Building ;
+    rdfs:label "Chamchuri 5" ;
+    brick:hasPart cu:Floor1,
+        cu:Floor2,
+        cu:Floor3,
+        cu:Floor4,
+        cu:Floor5,
+        cu:Floor6,
+        cu:Floor7 .
+
+cu:F3_Z1_Lighting a brick:Lighting_Equipment ;
+    rdfs:label "Floor 3 · Zone 1 lighting" ;
+    brick:hasLocation cu:F3_Z1 ;
+    brick:hasPoint cu:F3_z1_Light_kW_ .
+
+cu:F3_Z1_Plug a brick:Electrical_Equipment ;
+    rdfs:label "Floor 3 · Zone 1 plug" ;
+    brick:hasLocation cu:F3_Z1 ;
+    brick:hasPoint cu:F3_z1_Plug_kW_ .
+
+cu:F3_Z2_Lighting a brick:Lighting_Equipment ;
+    rdfs:label "Floor 3 · Zone 2 lighting" ;
+    brick:hasLocation cu:F3_Z2 ;
+    brick:hasPoint cu:F3_z2_Light_kW_ .
+
+cu:F3_Z2_Plug a brick:Electrical_Equipment ;
+    rdfs:label "Floor 3 · Zone 2 plug" ;
+    brick:hasLocation cu:F3_Z2 ;
+    brick:hasPoint cu:F3_z2_Plug_kW_ .
+
+cu:F3_Z3_Lighting a brick:Lighting_Equipment ;
+    rdfs:label "Floor 3 · Zone 3 lighting" ;
+    brick:hasLocation cu:F3_Z3 ;
+    brick:hasPoint cu:F3_z3_Light_kW_ .
+
+cu:F3_Z3_Plug a brick:Electrical_Equipment ;
+    rdfs:label "Floor 3 · Zone 3 plug" ;
+    brick:hasLocation cu:F3_Z3 ;
+    brick:hasPoint cu:F3_z3_Plug_kW_ .
+
+cu:F3_Z4_Lighting a brick:Lighting_Equipment ;
+    rdfs:label "Floor 3 · Zone 4 lighting" ;
+    brick:hasLocation cu:F3_Z4 ;
+    brick:hasPoint cu:F3_z4_Light_kW_ .
+
+cu:F3_Z4_Plug a brick:Electrical_Equipment ;
+    rdfs:label "Floor 3 · Zone 4 plug" ;
+    brick:hasLocation cu:F3_Z4 ;
+    brick:hasPoint cu:F3_z4_Plug_kW_ .
+
+cu:F3_Z5_Lighting a brick:Lighting_Equipment ;
+    rdfs:label "Floor 3 · Zone 5 lighting" ;
+    brick:hasLocation cu:F3_Z5 ;
+    brick:hasPoint cu:F3_z5_Light_kW_ .
+
+cu:F3_Z5_Plug a brick:Electrical_Equipment ;
+    rdfs:label "Floor 3 · Zone 5 plug" ;
+    brick:hasLocation cu:F3_Z5 ;
+    brick:hasPoint cu:F3_z5_Plug_kW_ .
+
+cu:F4_Z1_Lighting a brick:Lighting_Equipment ;
+    rdfs:label "Floor 4 · Zone 1 lighting" ;
+    brick:hasLocation cu:F4_Z1 ;
+    brick:hasPoint cu:F4_z1_Light_kW_ .
+
+cu:F4_Z1_Plug a brick:Electrical_Equipment ;
+    rdfs:label "Floor 4 · Zone 1 plug" ;
+    brick:hasLocation cu:F4_Z1 ;
+    brick:hasPoint cu:F4_z1_Plug_kW_ .
+
+cu:F4_Z2_Lighting a brick:Lighting_Equipment ;
+    rdfs:label "Floor 4 · Zone 2 lighting" ;
+    brick:hasLocation cu:F4_Z2 ;
+    brick:hasPoint cu:F4_z2_Light_kW_ .
+
+cu:F4_Z2_Plug a brick:Electrical_Equipment ;
+    rdfs:label "Floor 4 · Zone 2 plug" ;
+    brick:hasLocation cu:F4_Z2 ;
+    brick:hasPoint cu:F4_z2_Plug_kW_ .
+
+cu:F4_Z3_Lighting a brick:Lighting_Equipment ;
+    rdfs:label "Floor 4 · Zone 3 lighting" ;
+    brick:hasLocation cu:F4_Z3 ;
+    brick:hasPoint cu:F4_z3_Light_kW_ .
+
+cu:F4_Z3_Plug a brick:Electrical_Equipment ;
+    rdfs:label "Floor 4 · Zone 3 plug" ;
+    brick:hasLocation cu:F4_Z3 ;
+    brick:hasPoint cu:F4_z3_Plug_kW_ .
+
+cu:F4_Z4_Lighting a brick:Lighting_Equipment ;
+    rdfs:label "Floor 4 · Zone 4 lighting" ;
+    brick:hasLocation cu:F4_Z4 ;
+    brick:hasPoint cu:F4_z4_Light_kW_ .
+
+cu:F4_Z4_Plug a brick:Electrical_Equipment ;
+    rdfs:label "Floor 4 · Zone 4 plug" ;
+    brick:hasLocation cu:F4_Z4 ;
+    brick:hasPoint cu:F4_z4_Plug_kW_ .
+
+cu:F4_Z5_Lighting a brick:Lighting_Equipment ;
+    rdfs:label "Floor 4 · Zone 5 lighting" ;
+    brick:hasLocation cu:F4_Z5 ;
+    brick:hasPoint cu:F4_z5_Light_kW_ .
+
+cu:F4_Z5_Plug a brick:Electrical_Equipment ;
+    rdfs:label "Floor 4 · Zone 5 plug" ;
+    brick:hasLocation cu:F4_Z5 ;
+    brick:hasPoint cu:F4_z5_Plug_kW_ .
+
+cu:F5_Z1_Lighting a brick:Lighting_Equipment ;
+    rdfs:label "Floor 5 · Zone 1 lighting" ;
+    brick:hasLocation cu:F5_Z1 ;
+    brick:hasPoint cu:F5_z1_Light_kW_ .
+
+cu:F5_Z1_Plug a brick:Electrical_Equipment ;
+    rdfs:label "Floor 5 · Zone 1 plug" ;
+    brick:hasLocation cu:F5_Z1 ;
+    brick:hasPoint cu:F5_z1_Plug_kW_ .
+
+cu:F5_Z2_Lighting a brick:Lighting_Equipment ;
+    rdfs:label "Floor 5 · Zone 2 lighting" ;
+    brick:hasLocation cu:F5_Z2 ;
+    brick:hasPoint cu:F5_z2_Light_kW_ .
+
+cu:F5_Z2_Plug a brick:Electrical_Equipment ;
+    rdfs:label "Floor 5 · Zone 2 plug" ;
+    brick:hasLocation cu:F5_Z2 ;
+    brick:hasPoint cu:F5_z2_Plug_kW_ .
+
+cu:F5_Z3_Lighting a brick:Lighting_Equipment ;
+    rdfs:label "Floor 5 · Zone 3 lighting" ;
+    brick:hasLocation cu:F5_Z3 ;
+    brick:hasPoint cu:F5_z3_Light_kW_ .
+
+cu:F5_Z3_Plug a brick:Electrical_Equipment ;
+    rdfs:label "Floor 5 · Zone 3 plug" ;
+    brick:hasLocation cu:F5_Z3 ;
+    brick:hasPoint cu:F5_z3_Plug_kW_ .
+
+cu:F5_Z4_Lighting a brick:Lighting_Equipment ;
+    rdfs:label "Floor 5 · Zone 4 lighting" ;
+    brick:hasLocation cu:F5_Z4 ;
+    brick:hasPoint cu:F5_z4_Light_kW_ .
+
+cu:F5_Z4_Plug a brick:Electrical_Equipment ;
+    rdfs:label "Floor 5 · Zone 4 plug" ;
+    brick:hasLocation cu:F5_Z4 ;
+    brick:hasPoint cu:F5_z4_Plug_kW_ .
+
+cu:F5_Z5_Lighting a brick:Lighting_Equipment ;
+    rdfs:label "Floor 5 · Zone 5 lighting" ;
+    brick:hasLocation cu:F5_Z5 ;
+    brick:hasPoint cu:F5_z5_Light_kW_ .
+
+cu:F5_Z5_Plug a brick:Electrical_Equipment ;
+    rdfs:label "Floor 5 · Zone 5 plug" ;
+    brick:hasLocation cu:F5_Z5 ;
+    brick:hasPoint cu:F5_z5_Plug_kW_ .
+
+cu:F7_Z1_Lighting a brick:Lighting_Equipment ;
+    rdfs:label "Floor 7 · Zone 1 lighting" ;
+    brick:hasLocation cu:F7_Z1 ;
+    brick:hasPoint cu:F7_z1_Light_kW_ .
+
+cu:F7_Z1_Plug a brick:Electrical_Equipment ;
+    rdfs:label "Floor 7 · Zone 1 plug" ;
+    brick:hasLocation cu:F7_Z1 ;
+    brick:hasPoint cu:F7_z1_Plug_kW_ .
+
+cu:F7_Z2_Lighting a brick:Lighting_Equipment ;
+    rdfs:label "Floor 7 · Zone 2 lighting" ;
+    brick:hasLocation cu:F7_Z2 ;
+    brick:hasPoint cu:F7_z2_Light_kW_ .
+
+cu:F7_Z2_Plug a brick:Electrical_Equipment ;
+    rdfs:label "Floor 7 · Zone 2 plug" ;
+    brick:hasLocation cu:F7_Z2 ;
+    brick:hasPoint cu:F7_z2_Plug_kW_ .
+
+cu:F7_Z3_Lighting a brick:Lighting_Equipment ;
+    rdfs:label "Floor 7 · Zone 3 lighting" ;
+    brick:hasLocation cu:F7_Z3 ;
+    brick:hasPoint cu:F7_z3_Light_kW_ .
+
+cu:F7_Z3_Plug a brick:Electrical_Equipment ;
+    rdfs:label "Floor 7 · Zone 3 plug" ;
+    brick:hasLocation cu:F7_Z3 ;
+    brick:hasPoint cu:F7_z3_Plug_kW_ .
+
+cu:F7_Z4_Lighting a brick:Lighting_Equipment ;
+    rdfs:label "Floor 7 · Zone 4 lighting" ;
+    brick:hasLocation cu:F7_Z4 ;
+    brick:hasPoint cu:F7_z4_Light_kW_ .
+
+cu:F7_Z4_Plug a brick:Electrical_Equipment ;
+    rdfs:label "Floor 7 · Zone 4 plug" ;
+    brick:hasLocation cu:F7_Z4 ;
+    brick:hasPoint cu:F7_z4_Plug_kW_ .
+
+cu:F7_Z5_Lighting a brick:Lighting_Equipment ;
+    rdfs:label "Floor 7 · Zone 5 lighting" ;
+    brick:hasLocation cu:F7_Z5 ;
+    brick:hasPoint cu:F7_z5_Light_kW_ .
+
+cu:F7_Z5_Plug a brick:Electrical_Equipment ;
+    rdfs:label "Floor 7 · Zone 5 plug" ;
+    brick:hasLocation cu:F7_Z5 ;
+    brick:hasPoint cu:F7_z5_Plug_kW_ .
+
+cu:Floor3_CHW_assumed a brick:Chilled_Water_Loop ;
+    rdfs:label "Floor 3 chilled-water supply (assumed)" ;
+    rdfs:comment "ASSUMED – topology not in the dataset; confirm with facilities" ;
+    brick:feeds cu:F3_Z1_AC1,
+        cu:F3_Z1_AC2,
+        cu:F3_Z1_AC3,
+        cu:F3_Z1_AC4,
+        cu:F3_Z2_AC1,
+        cu:F3_Z4_AC1,
+        cu:F3_Z5_AC1 .
+
+cu:Floor4_CHW_assumed a brick:Chilled_Water_Loop ;
+    rdfs:label "Floor 4 chilled-water supply (assumed)" ;
+    rdfs:comment "ASSUMED – topology not in the dataset; confirm with facilities" ;
+    brick:feeds cu:F4_Z1_AC1,
+        cu:F4_Z1_AC2,
+        cu:F4_Z1_AC3,
+        cu:F4_Z1_AC4,
+        cu:F4_Z2_AC1,
+        cu:F4_Z4_AC1,
+        cu:F4_Z5_AC1 .
+
+cu:Floor5_CHW_assumed a brick:Chilled_Water_Loop ;
+    rdfs:label "Floor 5 chilled-water supply (assumed)" ;
+    rdfs:comment "ASSUMED – topology not in the dataset; confirm with facilities" ;
+    brick:feeds cu:F5_Z1_AC1,
+        cu:F5_Z1_AC2,
+        cu:F5_Z1_AC3,
+        cu:F5_Z1_AC4,
+        cu:F5_Z2_AC1,
+        cu:F5_Z4_AC1,
+        cu:F5_Z5_AC1 .
+
+cu:Floor7_CHW_assumed a brick:Chilled_Water_Loop ;
+    rdfs:label "Floor 7 chilled-water supply (assumed)" ;
+    rdfs:comment "ASSUMED – topology not in the dataset; confirm with facilities" ;
+    brick:feeds cu:F7_Z1_AC1,
+        cu:F7_Z1_AC2,
+        cu:F7_Z1_AC3,
+        cu:F7_Z1_AC4,
+        cu:F7_Z2_AC1,
+        cu:F7_Z4_AC1,
+        cu:F7_Z5_AC1 .
+
+cu:F3_Z1_AC1 a brick:Terminal_Unit ;
+    rdfs:label "Floor 3 · Zone 1 · AC1" ;
+    brick:feeds cu:F3_Z1 ;
+    brick:hasLocation cu:F3_Z1 ;
+    brick:hasPoint cu:F3_z1_AC1_kW_ ;
+    cu:analysed false .
+
+cu:F3_Z1_AC2 a brick:Terminal_Unit ;
+    rdfs:label "Floor 3 · Zone 1 · AC2" ;
+    brick:feeds cu:F3_Z1 ;
+    brick:hasLocation cu:F3_Z1 ;
+    brick:hasPoint cu:F3_z1_AC2_kW_ ;
+    cu:analysed false .
+
+cu:F3_Z1_AC3 a brick:Terminal_Unit ;
+    rdfs:label "Floor 3 · Zone 1 · AC3" ;
+    brick:feeds cu:F3_Z1 ;
+    brick:hasLocation cu:F3_Z1 ;
+    brick:hasPoint cu:F3_z1_AC3_kW_ ;
+    cu:analysed false .
+
+cu:F3_Z1_AC4 a brick:Terminal_Unit ;
+    rdfs:label "Floor 3 · Zone 1 · AC4" ;
+    brick:feeds cu:F3_Z1 ;
+    brick:hasLocation cu:F3_Z1 ;
+    brick:hasPoint cu:F3_z1_AC4_kW_ ;
+    cu:analysed true .
+
+cu:F3_Z2_AC1 a brick:Terminal_Unit ;
+    rdfs:label "Floor 3 · Zone 2 · AC1" ;
+    brick:feeds cu:F3_Z2 ;
+    brick:hasLocation cu:F3_Z2 ;
+    brick:hasPoint cu:F3_z2_AC1_kW_ ;
+    cu:analysed true .
+
+cu:F3_Z4_AC1 a brick:Terminal_Unit ;
+    rdfs:label "Floor 3 · Zone 4 · AC1" ;
+    brick:feeds cu:F3_Z4 ;
+    brick:hasLocation cu:F3_Z4 ;
+    brick:hasPoint cu:F3_z4_AC1_kW_ ;
+    cu:analysed true .
+
+cu:F3_Z5_AC1 a brick:Terminal_Unit ;
+    rdfs:label "Floor 3 · Zone 5 · AC1" ;
+    brick:feeds cu:F3_Z5 ;
+    brick:hasLocation cu:F3_Z5 ;
+    brick:hasPoint cu:F3_z5_AC1_kW_ ;
+    cu:analysed true .
+
+cu:F3_z1_AC1_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "AC electric power" ;
+    ref:hasExternalReference cu:ref_F3_z1_AC1_kW_ .
+
+cu:F3_z1_AC2_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "AC electric power" ;
+    ref:hasExternalReference cu:ref_F3_z1_AC2_kW_ .
+
+cu:F3_z1_AC3_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "AC electric power" ;
+    ref:hasExternalReference cu:ref_F3_z1_AC3_kW_ .
+
+cu:F3_z1_AC4_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "AC electric power" ;
+    ref:hasExternalReference cu:ref_F3_z1_AC4_kW_ .
+
+cu:F3_z1_Light_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Lighting power" ;
+    ref:hasExternalReference cu:ref_F3_z1_Light_kW_ .
+
+cu:F3_z1_Plug_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Plug power" ;
+    ref:hasExternalReference cu:ref_F3_z1_Plug_kW_ .
+
+cu:F3_z1_S1_RH__ a brick:Zone_Air_Humidity_Sensor ;
+    rdfs:label "Zone air humidity" ;
+    ref:hasExternalReference cu:ref_F3_z1_S1_RH__ .
+
+cu:F3_z1_S1_degC_ a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "Zone air temperature" ;
+    ref:hasExternalReference cu:ref_F3_z1_S1_degC_ .
+
+cu:F3_z1_S1_lux_ a brick:Illuminance_Sensor ;
+    rdfs:label "Illuminance" ;
+    ref:hasExternalReference cu:ref_F3_z1_S1_lux_ .
+
+cu:F3_z2_AC1_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "AC electric power" ;
+    ref:hasExternalReference cu:ref_F3_z2_AC1_kW_ .
+
+cu:F3_z2_Light_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Lighting power" ;
+    ref:hasExternalReference cu:ref_F3_z2_Light_kW_ .
+
+cu:F3_z2_Plug_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Plug power" ;
+    ref:hasExternalReference cu:ref_F3_z2_Plug_kW_ .
+
+cu:F3_z2_S1_RH__ a brick:Zone_Air_Humidity_Sensor ;
+    rdfs:label "Zone air humidity" ;
+    ref:hasExternalReference cu:ref_F3_z2_S1_RH__ .
+
+cu:F3_z2_S1_degC_ a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "Zone air temperature" ;
+    ref:hasExternalReference cu:ref_F3_z2_S1_degC_ .
+
+cu:F3_z2_S1_lux_ a brick:Illuminance_Sensor ;
+    rdfs:label "Illuminance" ;
+    ref:hasExternalReference cu:ref_F3_z2_S1_lux_ .
+
+cu:F3_z3_Light_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Lighting power" ;
+    ref:hasExternalReference cu:ref_F3_z3_Light_kW_ .
+
+cu:F3_z3_Plug_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Plug power" ;
+    ref:hasExternalReference cu:ref_F3_z3_Plug_kW_ .
+
+cu:F3_z3_S1_RH__ a brick:Zone_Air_Humidity_Sensor ;
+    rdfs:label "Zone air humidity" ;
+    ref:hasExternalReference cu:ref_F3_z3_S1_RH__ .
+
+cu:F3_z3_S1_degC_ a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "Zone air temperature" ;
+    ref:hasExternalReference cu:ref_F3_z3_S1_degC_ .
+
+cu:F3_z4_AC1_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "AC electric power" ;
+    ref:hasExternalReference cu:ref_F3_z4_AC1_kW_ .
+
+cu:F3_z4_Light_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Lighting power" ;
+    ref:hasExternalReference cu:ref_F3_z4_Light_kW_ .
+
+cu:F3_z4_Plug_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Plug power" ;
+    ref:hasExternalReference cu:ref_F3_z4_Plug_kW_ .
+
+cu:F3_z4_S1_RH__ a brick:Zone_Air_Humidity_Sensor ;
+    rdfs:label "Zone air humidity" ;
+    ref:hasExternalReference cu:ref_F3_z4_S1_RH__ .
+
+cu:F3_z4_S1_degC_ a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "Zone air temperature" ;
+    ref:hasExternalReference cu:ref_F3_z4_S1_degC_ .
+
+cu:F3_z4_S1_lux_ a brick:Illuminance_Sensor ;
+    rdfs:label "Illuminance" ;
+    ref:hasExternalReference cu:ref_F3_z4_S1_lux_ .
+
+cu:F3_z5_AC1_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "AC electric power" ;
+    ref:hasExternalReference cu:ref_F3_z5_AC1_kW_ .
+
+cu:F3_z5_Light_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Lighting power" ;
+    ref:hasExternalReference cu:ref_F3_z5_Light_kW_ .
+
+cu:F3_z5_Plug_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Plug power" ;
+    ref:hasExternalReference cu:ref_F3_z5_Plug_kW_ .
+
+cu:F3_z5_S1_RH__ a brick:Zone_Air_Humidity_Sensor ;
+    rdfs:label "Zone air humidity" ;
+    ref:hasExternalReference cu:ref_F3_z5_S1_RH__ .
+
+cu:F3_z5_S1_degC_ a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "Zone air temperature" ;
+    ref:hasExternalReference cu:ref_F3_z5_S1_degC_ .
+
+cu:F3_z5_S1_lux_ a brick:Illuminance_Sensor ;
+    rdfs:label "Illuminance" ;
+    ref:hasExternalReference cu:ref_F3_z5_S1_lux_ .
+
+cu:F4_Z1_AC1 a brick:Terminal_Unit ;
+    rdfs:label "Floor 4 · Zone 1 · AC1" ;
+    brick:feeds cu:F4_Z1 ;
+    brick:hasLocation cu:F4_Z1 ;
+    brick:hasPoint cu:F4_z1_AC1_kW_ ;
+    cu:analysed false .
+
+cu:F4_Z1_AC2 a brick:Terminal_Unit ;
+    rdfs:label "Floor 4 · Zone 1 · AC2" ;
+    brick:feeds cu:F4_Z1 ;
+    brick:hasLocation cu:F4_Z1 ;
+    brick:hasPoint cu:F4_z1_AC2_kW_ ;
+    cu:analysed false .
+
+cu:F4_Z1_AC3 a brick:Terminal_Unit ;
+    rdfs:label "Floor 4 · Zone 1 · AC3" ;
+    brick:feeds cu:F4_Z1 ;
+    brick:hasLocation cu:F4_Z1 ;
+    brick:hasPoint cu:F4_z1_AC3_kW_ ;
+    cu:analysed false .
+
+cu:F4_Z1_AC4 a brick:Terminal_Unit ;
+    rdfs:label "Floor 4 · Zone 1 · AC4" ;
+    brick:feeds cu:F4_Z1 ;
+    brick:hasLocation cu:F4_Z1 ;
+    brick:hasPoint cu:F4_z1_AC4_kW_ ;
+    cu:analysed true .
+
+cu:F4_Z2_AC1 a brick:Terminal_Unit ;
+    rdfs:label "Floor 4 · Zone 2 · AC1" ;
+    brick:feeds cu:F4_Z2 ;
+    brick:hasLocation cu:F4_Z2 ;
+    brick:hasPoint cu:F4_z2_AC1_kW_ ;
+    cu:analysed true .
+
+cu:F4_Z4_AC1 a brick:Terminal_Unit ;
+    rdfs:label "Floor 4 · Zone 4 · AC1" ;
+    brick:feeds cu:F4_Z4 ;
+    brick:hasLocation cu:F4_Z4 ;
+    brick:hasPoint cu:F4_z4_AC1_kW_ ;
+    cu:analysed true .
+
+cu:F4_Z5_AC1 a brick:Terminal_Unit ;
+    rdfs:label "Floor 4 · Zone 5 · AC1" ;
+    brick:feeds cu:F4_Z5 ;
+    brick:hasLocation cu:F4_Z5 ;
+    brick:hasPoint cu:F4_z5_AC1_kW_ ;
+    cu:analysed true .
+
+cu:F4_z1_AC1_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "AC electric power" ;
+    ref:hasExternalReference cu:ref_F4_z1_AC1_kW_ .
+
+cu:F4_z1_AC2_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "AC electric power" ;
+    ref:hasExternalReference cu:ref_F4_z1_AC2_kW_ .
+
+cu:F4_z1_AC3_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "AC electric power" ;
+    ref:hasExternalReference cu:ref_F4_z1_AC3_kW_ .
+
+cu:F4_z1_AC4_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "AC electric power" ;
+    ref:hasExternalReference cu:ref_F4_z1_AC4_kW_ .
+
+cu:F4_z1_Light_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Lighting power" ;
+    ref:hasExternalReference cu:ref_F4_z1_Light_kW_ .
+
+cu:F4_z1_Plug_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Plug power" ;
+    ref:hasExternalReference cu:ref_F4_z1_Plug_kW_ .
+
+cu:F4_z1_S1_RH__ a brick:Zone_Air_Humidity_Sensor ;
+    rdfs:label "Zone air humidity" ;
+    ref:hasExternalReference cu:ref_F4_z1_S1_RH__ .
+
+cu:F4_z1_S1_degC_ a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "Zone air temperature" ;
+    ref:hasExternalReference cu:ref_F4_z1_S1_degC_ .
+
+cu:F4_z1_S1_lux_ a brick:Illuminance_Sensor ;
+    rdfs:label "Illuminance" ;
+    ref:hasExternalReference cu:ref_F4_z1_S1_lux_ .
+
+cu:F4_z2_AC1_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "AC electric power" ;
+    ref:hasExternalReference cu:ref_F4_z2_AC1_kW_ .
+
+cu:F4_z2_Light_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Lighting power" ;
+    ref:hasExternalReference cu:ref_F4_z2_Light_kW_ .
+
+cu:F4_z2_Plug_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Plug power" ;
+    ref:hasExternalReference cu:ref_F4_z2_Plug_kW_ .
+
+cu:F4_z2_S1_RH__ a brick:Zone_Air_Humidity_Sensor ;
+    rdfs:label "Zone air humidity" ;
+    ref:hasExternalReference cu:ref_F4_z2_S1_RH__ .
+
+cu:F4_z2_S1_degC_ a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "Zone air temperature" ;
+    ref:hasExternalReference cu:ref_F4_z2_S1_degC_ .
+
+cu:F4_z2_S1_lux_ a brick:Illuminance_Sensor ;
+    rdfs:label "Illuminance" ;
+    ref:hasExternalReference cu:ref_F4_z2_S1_lux_ .
+
+cu:F4_z3_Light_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Lighting power" ;
+    ref:hasExternalReference cu:ref_F4_z3_Light_kW_ .
+
+cu:F4_z3_Plug_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Plug power" ;
+    ref:hasExternalReference cu:ref_F4_z3_Plug_kW_ .
+
+cu:F4_z3_S1_RH__ a brick:Zone_Air_Humidity_Sensor ;
+    rdfs:label "Zone air humidity" ;
+    ref:hasExternalReference cu:ref_F4_z3_S1_RH__ .
+
+cu:F4_z3_S1_degC_ a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "Zone air temperature" ;
+    ref:hasExternalReference cu:ref_F4_z3_S1_degC_ .
+
+cu:F4_z4_AC1_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "AC electric power" ;
+    ref:hasExternalReference cu:ref_F4_z4_AC1_kW_ .
+
+cu:F4_z4_Light_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Lighting power" ;
+    ref:hasExternalReference cu:ref_F4_z4_Light_kW_ .
+
+cu:F4_z4_Plug_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Plug power" ;
+    ref:hasExternalReference cu:ref_F4_z4_Plug_kW_ .
+
+cu:F4_z4_S1_RH__ a brick:Zone_Air_Humidity_Sensor ;
+    rdfs:label "Zone air humidity" ;
+    ref:hasExternalReference cu:ref_F4_z4_S1_RH__ .
+
+cu:F4_z4_S1_degC_ a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "Zone air temperature" ;
+    ref:hasExternalReference cu:ref_F4_z4_S1_degC_ .
+
+cu:F4_z4_S1_lux_ a brick:Illuminance_Sensor ;
+    rdfs:label "Illuminance" ;
+    ref:hasExternalReference cu:ref_F4_z4_S1_lux_ .
+
+cu:F4_z5_AC1_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "AC electric power" ;
+    ref:hasExternalReference cu:ref_F4_z5_AC1_kW_ .
+
+cu:F4_z5_Light_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Lighting power" ;
+    ref:hasExternalReference cu:ref_F4_z5_Light_kW_ .
+
+cu:F4_z5_Plug_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Plug power" ;
+    ref:hasExternalReference cu:ref_F4_z5_Plug_kW_ .
+
+cu:F4_z5_S1_RH__ a brick:Zone_Air_Humidity_Sensor ;
+    rdfs:label "Zone air humidity" ;
+    ref:hasExternalReference cu:ref_F4_z5_S1_RH__ .
+
+cu:F4_z5_S1_degC_ a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "Zone air temperature" ;
+    ref:hasExternalReference cu:ref_F4_z5_S1_degC_ .
+
+cu:F4_z5_S1_lux_ a brick:Illuminance_Sensor ;
+    rdfs:label "Illuminance" ;
+    ref:hasExternalReference cu:ref_F4_z5_S1_lux_ .
+
+cu:F5_Z1_AC1 a brick:Terminal_Unit ;
+    rdfs:label "Floor 5 · Zone 1 · AC1" ;
+    brick:feeds cu:F5_Z1 ;
+    brick:hasLocation cu:F5_Z1 ;
+    brick:hasPoint cu:F5_z1_AC1_kW_ ;
+    cu:analysed false .
+
+cu:F5_Z1_AC2 a brick:Terminal_Unit ;
+    rdfs:label "Floor 5 · Zone 1 · AC2" ;
+    brick:feeds cu:F5_Z1 ;
+    brick:hasLocation cu:F5_Z1 ;
+    brick:hasPoint cu:F5_z1_AC2_kW_ ;
+    cu:analysed false .
+
+cu:F5_Z1_AC3 a brick:Terminal_Unit ;
+    rdfs:label "Floor 5 · Zone 1 · AC3" ;
+    brick:feeds cu:F5_Z1 ;
+    brick:hasLocation cu:F5_Z1 ;
+    brick:hasPoint cu:F5_z1_AC3_kW_ ;
+    cu:analysed false .
+
+cu:F5_Z1_AC4 a brick:Terminal_Unit ;
+    rdfs:label "Floor 5 · Zone 1 · AC4" ;
+    brick:feeds cu:F5_Z1 ;
+    brick:hasLocation cu:F5_Z1 ;
+    brick:hasPoint cu:F5_z1_AC4_kW_ ;
+    cu:analysed true .
+
+cu:F5_Z2_AC1 a brick:Terminal_Unit ;
+    rdfs:label "Floor 5 · Zone 2 · AC1" ;
+    brick:feeds cu:F5_Z2 ;
+    brick:hasLocation cu:F5_Z2 ;
+    brick:hasPoint cu:F5_z2_AC1_kW_ ;
+    cu:analysed true .
+
+cu:F5_Z4_AC1 a brick:Terminal_Unit ;
+    rdfs:label "Floor 5 · Zone 4 · AC1" ;
+    brick:feeds cu:F5_Z4 ;
+    brick:hasLocation cu:F5_Z4 ;
+    brick:hasPoint cu:F5_z4_AC1_kW_ ;
+    cu:analysed true .
+
+cu:F5_Z5_AC1 a brick:Terminal_Unit ;
+    rdfs:label "Floor 5 · Zone 5 · AC1" ;
+    brick:feeds cu:F5_Z5 ;
+    brick:hasLocation cu:F5_Z5 ;
+    brick:hasPoint cu:F5_z5_AC1_kW_ ;
+    cu:analysed true .
+
+cu:F5_z1_AC1_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "AC electric power" ;
+    ref:hasExternalReference cu:ref_F5_z1_AC1_kW_ .
+
+cu:F5_z1_AC2_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "AC electric power" ;
+    ref:hasExternalReference cu:ref_F5_z1_AC2_kW_ .
+
+cu:F5_z1_AC3_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "AC electric power" ;
+    ref:hasExternalReference cu:ref_F5_z1_AC3_kW_ .
+
+cu:F5_z1_AC4_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "AC electric power" ;
+    ref:hasExternalReference cu:ref_F5_z1_AC4_kW_ .
+
+cu:F5_z1_Light_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Lighting power" ;
+    ref:hasExternalReference cu:ref_F5_z1_Light_kW_ .
+
+cu:F5_z1_Plug_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Plug power" ;
+    ref:hasExternalReference cu:ref_F5_z1_Plug_kW_ .
+
+cu:F5_z1_S1_RH__ a brick:Zone_Air_Humidity_Sensor ;
+    rdfs:label "Zone air humidity" ;
+    ref:hasExternalReference cu:ref_F5_z1_S1_RH__ .
+
+cu:F5_z1_S1_degC_ a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "Zone air temperature" ;
+    ref:hasExternalReference cu:ref_F5_z1_S1_degC_ .
+
+cu:F5_z1_S1_lux_ a brick:Illuminance_Sensor ;
+    rdfs:label "Illuminance" ;
+    ref:hasExternalReference cu:ref_F5_z1_S1_lux_ .
+
+cu:F5_z2_AC1_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "AC electric power" ;
+    ref:hasExternalReference cu:ref_F5_z2_AC1_kW_ .
+
+cu:F5_z2_Light_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Lighting power" ;
+    ref:hasExternalReference cu:ref_F5_z2_Light_kW_ .
+
+cu:F5_z2_Plug_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Plug power" ;
+    ref:hasExternalReference cu:ref_F5_z2_Plug_kW_ .
+
+cu:F5_z2_S1_RH__ a brick:Zone_Air_Humidity_Sensor ;
+    rdfs:label "Zone air humidity" ;
+    ref:hasExternalReference cu:ref_F5_z2_S1_RH__ .
+
+cu:F5_z2_S1_degC_ a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "Zone air temperature" ;
+    ref:hasExternalReference cu:ref_F5_z2_S1_degC_ .
+
+cu:F5_z2_S1_lux_ a brick:Illuminance_Sensor ;
+    rdfs:label "Illuminance" ;
+    ref:hasExternalReference cu:ref_F5_z2_S1_lux_ .
+
+cu:F5_z3_Light_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Lighting power" ;
+    ref:hasExternalReference cu:ref_F5_z3_Light_kW_ .
+
+cu:F5_z3_Plug_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Plug power" ;
+    ref:hasExternalReference cu:ref_F5_z3_Plug_kW_ .
+
+cu:F5_z3_S1_RH__ a brick:Zone_Air_Humidity_Sensor ;
+    rdfs:label "Zone air humidity" ;
+    ref:hasExternalReference cu:ref_F5_z3_S1_RH__ .
+
+cu:F5_z3_S1_degC_ a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "Zone air temperature" ;
+    ref:hasExternalReference cu:ref_F5_z3_S1_degC_ .
+
+cu:F5_z4_AC1_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "AC electric power" ;
+    ref:hasExternalReference cu:ref_F5_z4_AC1_kW_ .
+
+cu:F5_z4_Light_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Lighting power" ;
+    ref:hasExternalReference cu:ref_F5_z4_Light_kW_ .
+
+cu:F5_z4_Plug_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Plug power" ;
+    ref:hasExternalReference cu:ref_F5_z4_Plug_kW_ .
+
+cu:F5_z4_S1_RH__ a brick:Zone_Air_Humidity_Sensor ;
+    rdfs:label "Zone air humidity" ;
+    ref:hasExternalReference cu:ref_F5_z4_S1_RH__ .
+
+cu:F5_z4_S1_degC_ a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "Zone air temperature" ;
+    ref:hasExternalReference cu:ref_F5_z4_S1_degC_ .
+
+cu:F5_z4_S1_lux_ a brick:Illuminance_Sensor ;
+    rdfs:label "Illuminance" ;
+    ref:hasExternalReference cu:ref_F5_z4_S1_lux_ .
+
+cu:F5_z5_AC1_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "AC electric power" ;
+    ref:hasExternalReference cu:ref_F5_z5_AC1_kW_ .
+
+cu:F5_z5_Light_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Lighting power" ;
+    ref:hasExternalReference cu:ref_F5_z5_Light_kW_ .
+
+cu:F5_z5_Plug_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Plug power" ;
+    ref:hasExternalReference cu:ref_F5_z5_Plug_kW_ .
+
+cu:F5_z5_S1_RH__ a brick:Zone_Air_Humidity_Sensor ;
+    rdfs:label "Zone air humidity" ;
+    ref:hasExternalReference cu:ref_F5_z5_S1_RH__ .
+
+cu:F5_z5_S1_degC_ a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "Zone air temperature" ;
+    ref:hasExternalReference cu:ref_F5_z5_S1_degC_ .
+
+cu:F5_z5_S1_lux_ a brick:Illuminance_Sensor ;
+    rdfs:label "Illuminance" ;
+    ref:hasExternalReference cu:ref_F5_z5_S1_lux_ .
+
+cu:F7_Z1_AC1 a brick:Terminal_Unit ;
+    rdfs:label "Floor 7 · Zone 1 · AC1" ;
+    brick:feeds cu:F7_Z1 ;
+    brick:hasLocation cu:F7_Z1 ;
+    brick:hasPoint cu:F7_z1_AC1_kW_ ;
+    cu:analysed false .
+
+cu:F7_Z1_AC2 a brick:Terminal_Unit ;
+    rdfs:label "Floor 7 · Zone 1 · AC2" ;
+    brick:feeds cu:F7_Z1 ;
+    brick:hasLocation cu:F7_Z1 ;
+    brick:hasPoint cu:F7_z1_AC2_kW_ ;
+    cu:analysed false .
+
+cu:F7_Z1_AC3 a brick:Terminal_Unit ;
+    rdfs:label "Floor 7 · Zone 1 · AC3" ;
+    brick:feeds cu:F7_Z1 ;
+    brick:hasLocation cu:F7_Z1 ;
+    brick:hasPoint cu:F7_z1_AC3_kW_ ;
+    cu:analysed false .
+
+cu:F7_Z1_AC4 a brick:Terminal_Unit ;
+    rdfs:label "Floor 7 · Zone 1 · AC4" ;
+    brick:feeds cu:F7_Z1 ;
+    brick:hasLocation cu:F7_Z1 ;
+    brick:hasPoint cu:F7_z1_AC4_kW_ ;
+    cu:analysed true .
+
+cu:F7_Z2_AC1 a brick:Terminal_Unit ;
+    rdfs:label "Floor 7 · Zone 2 · AC1" ;
+    brick:feeds cu:F7_Z2 ;
+    brick:hasLocation cu:F7_Z2 ;
+    brick:hasPoint cu:F7_z2_AC1_kW_ ;
+    cu:analysed true .
+
+cu:F7_Z4_AC1 a brick:Terminal_Unit ;
+    rdfs:label "Floor 7 · Zone 4 · AC1" ;
+    brick:feeds cu:F7_Z4 ;
+    brick:hasLocation cu:F7_Z4 ;
+    brick:hasPoint cu:F7_z4_AC1_kW_ ;
+    cu:analysed true .
+
+cu:F7_Z5_AC1 a brick:Terminal_Unit ;
+    rdfs:label "Floor 7 · Zone 5 · AC1" ;
+    brick:feeds cu:F7_Z5 ;
+    brick:hasLocation cu:F7_Z5 ;
+    brick:hasPoint cu:F7_z5_AC1_kW_ ;
+    cu:analysed true .
+
+cu:F7_z1_AC1_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "AC electric power" ;
+    ref:hasExternalReference cu:ref_F7_z1_AC1_kW_ .
+
+cu:F7_z1_AC2_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "AC electric power" ;
+    ref:hasExternalReference cu:ref_F7_z1_AC2_kW_ .
+
+cu:F7_z1_AC3_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "AC electric power" ;
+    ref:hasExternalReference cu:ref_F7_z1_AC3_kW_ .
+
+cu:F7_z1_AC4_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "AC electric power" ;
+    ref:hasExternalReference cu:ref_F7_z1_AC4_kW_ .
+
+cu:F7_z1_Light_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Lighting power" ;
+    ref:hasExternalReference cu:ref_F7_z1_Light_kW_ .
+
+cu:F7_z1_Plug_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Plug power" ;
+    ref:hasExternalReference cu:ref_F7_z1_Plug_kW_ .
+
+cu:F7_z1_S1_RH__ a brick:Zone_Air_Humidity_Sensor ;
+    rdfs:label "Zone air humidity" ;
+    ref:hasExternalReference cu:ref_F7_z1_S1_RH__ .
+
+cu:F7_z1_S1_degC_ a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "Zone air temperature" ;
+    ref:hasExternalReference cu:ref_F7_z1_S1_degC_ .
+
+cu:F7_z1_S1_lux_ a brick:Illuminance_Sensor ;
+    rdfs:label "Illuminance" ;
+    ref:hasExternalReference cu:ref_F7_z1_S1_lux_ .
+
+cu:F7_z2_AC1_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "AC electric power" ;
+    ref:hasExternalReference cu:ref_F7_z2_AC1_kW_ .
+
+cu:F7_z2_Light_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Lighting power" ;
+    ref:hasExternalReference cu:ref_F7_z2_Light_kW_ .
+
+cu:F7_z2_Plug_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Plug power" ;
+    ref:hasExternalReference cu:ref_F7_z2_Plug_kW_ .
+
+cu:F7_z2_S1_RH__ a brick:Zone_Air_Humidity_Sensor ;
+    rdfs:label "Zone air humidity" ;
+    ref:hasExternalReference cu:ref_F7_z2_S1_RH__ .
+
+cu:F7_z2_S1_degC_ a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "Zone air temperature" ;
+    ref:hasExternalReference cu:ref_F7_z2_S1_degC_ .
+
+cu:F7_z2_S1_lux_ a brick:Illuminance_Sensor ;
+    rdfs:label "Illuminance" ;
+    ref:hasExternalReference cu:ref_F7_z2_S1_lux_ .
+
+cu:F7_z3_Light_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Lighting power" ;
+    ref:hasExternalReference cu:ref_F7_z3_Light_kW_ .
+
+cu:F7_z3_Plug_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Plug power" ;
+    ref:hasExternalReference cu:ref_F7_z3_Plug_kW_ .
+
+cu:F7_z3_S1_RH__ a brick:Zone_Air_Humidity_Sensor ;
+    rdfs:label "Zone air humidity" ;
+    ref:hasExternalReference cu:ref_F7_z3_S1_RH__ .
+
+cu:F7_z3_S1_degC_ a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "Zone air temperature" ;
+    ref:hasExternalReference cu:ref_F7_z3_S1_degC_ .
+
+cu:F7_z4_AC1_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "AC electric power" ;
+    ref:hasExternalReference cu:ref_F7_z4_AC1_kW_ .
+
+cu:F7_z4_Light_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Lighting power" ;
+    ref:hasExternalReference cu:ref_F7_z4_Light_kW_ .
+
+cu:F7_z4_Plug_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Plug power" ;
+    ref:hasExternalReference cu:ref_F7_z4_Plug_kW_ .
+
+cu:F7_z4_S1_RH__ a brick:Zone_Air_Humidity_Sensor ;
+    rdfs:label "Zone air humidity" ;
+    ref:hasExternalReference cu:ref_F7_z4_S1_RH__ .
+
+cu:F7_z4_S1_degC_ a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "Zone air temperature" ;
+    ref:hasExternalReference cu:ref_F7_z4_S1_degC_ .
+
+cu:F7_z4_S1_lux_ a brick:Illuminance_Sensor ;
+    rdfs:label "Illuminance" ;
+    ref:hasExternalReference cu:ref_F7_z4_S1_lux_ .
+
+cu:F7_z5_AC1_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "AC electric power" ;
+    ref:hasExternalReference cu:ref_F7_z5_AC1_kW_ .
+
+cu:F7_z5_Light_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Lighting power" ;
+    ref:hasExternalReference cu:ref_F7_z5_Light_kW_ .
+
+cu:F7_z5_Plug_kW_ a brick:Electric_Power_Sensor ;
+    rdfs:label "Plug power" ;
+    ref:hasExternalReference cu:ref_F7_z5_Plug_kW_ .
+
+cu:F7_z5_S1_RH__ a brick:Zone_Air_Humidity_Sensor ;
+    rdfs:label "Zone air humidity" ;
+    ref:hasExternalReference cu:ref_F7_z5_S1_RH__ .
+
+cu:F7_z5_S1_degC_ a brick:Zone_Air_Temperature_Sensor ;
+    rdfs:label "Zone air temperature" ;
+    ref:hasExternalReference cu:ref_F7_z5_S1_degC_ .
+
+cu:F7_z5_S1_lux_ a brick:Illuminance_Sensor ;
+    rdfs:label "Illuminance" ;
+    ref:hasExternalReference cu:ref_F7_z5_S1_lux_ .
+
+cu:Floor1 a brick:Floor ;
+    rdfs:label "Floor 1" ;
+    rdfs:comment "Shown for context; not in the AC analysis" .
+
+cu:Floor2 a brick:Floor ;
+    rdfs:label "Floor 2" ;
+    rdfs:comment "Shown for context; not in the AC analysis" .
+
+cu:Floor3 a brick:Floor ;
+    rdfs:label "Floor 3" ;
+    brick:hasPart cu:F3_Z1,
+        cu:F3_Z2,
+        cu:F3_Z3,
+        cu:F3_Z4,
+        cu:F3_Z5 .
+
+cu:Floor4 a brick:Floor ;
+    rdfs:label "Floor 4" ;
+    brick:hasPart cu:F4_Z1,
+        cu:F4_Z2,
+        cu:F4_Z3,
+        cu:F4_Z4,
+        cu:F4_Z5 .
+
+cu:Floor5 a brick:Floor ;
+    rdfs:label "Floor 5" ;
+    brick:hasPart cu:F5_Z1,
+        cu:F5_Z2,
+        cu:F5_Z3,
+        cu:F5_Z4,
+        cu:F5_Z5 .
+
+cu:Floor6 a brick:Floor ;
+    rdfs:label "Floor 6" ;
+    rdfs:comment "Shown for context; not in the AC analysis" .
+
+cu:Floor7 a brick:Floor ;
+    rdfs:label "Floor 7" ;
+    brick:hasPart cu:F7_Z1,
+        cu:F7_Z2,
+        cu:F7_Z3,
+        cu:F7_Z4,
+        cu:F7_Z5 .
+
+cu:ref_F3_z1_AC1_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F3_z1_AC1(kW)" .
+
+cu:ref_F3_z1_AC2_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F3_z1_AC2(kW)" .
+
+cu:ref_F3_z1_AC3_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F3_z1_AC3(kW)" .
+
+cu:ref_F3_z1_AC4_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F3_z1_AC4(kW)" .
+
+cu:ref_F3_z1_Light_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F3_z1_Light(kW)" .
+
+cu:ref_F3_z1_Plug_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F3_z1_Plug(kW)" .
+
+cu:ref_F3_z1_S1_RH__ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F3_z1_S1(RH%)" .
+
+cu:ref_F3_z1_S1_degC_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F3_z1_S1(degC)" .
+
+cu:ref_F3_z1_S1_lux_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F3_z1_S1(lux)" .
+
+cu:ref_F3_z2_AC1_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F3_z2_AC1(kW)" .
+
+cu:ref_F3_z2_Light_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F3_z2_Light(kW)" .
+
+cu:ref_F3_z2_Plug_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F3_z2_Plug(kW)" .
+
+cu:ref_F3_z2_S1_RH__ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F3_z2_S1(RH%)" .
+
+cu:ref_F3_z2_S1_degC_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F3_z2_S1(degC)" .
+
+cu:ref_F3_z2_S1_lux_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F3_z2_S1(lux)" .
+
+cu:ref_F3_z3_Light_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F3_z3_Light(kW)" .
+
+cu:ref_F3_z3_Plug_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F3_z3_Plug(kW)" .
+
+cu:ref_F3_z3_S1_RH__ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F3_z3_S1(RH%)" .
+
+cu:ref_F3_z3_S1_degC_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F3_z3_S1(degC)" .
+
+cu:ref_F3_z4_AC1_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F3_z4_AC1(kW)" .
+
+cu:ref_F3_z4_Light_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F3_z4_Light(kW)" .
+
+cu:ref_F3_z4_Plug_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F3_z4_Plug(kW)" .
+
+cu:ref_F3_z4_S1_RH__ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F3_z4_S1(RH%)" .
+
+cu:ref_F3_z4_S1_degC_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F3_z4_S1(degC)" .
+
+cu:ref_F3_z4_S1_lux_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F3_z4_S1(lux)" .
+
+cu:ref_F3_z5_AC1_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F3_z5_AC1(kW)" .
+
+cu:ref_F3_z5_Light_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F3_z5_Light(kW)" .
+
+cu:ref_F3_z5_Plug_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F3_z5_Plug(kW)" .
+
+cu:ref_F3_z5_S1_RH__ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F3_z5_S1(RH%)" .
+
+cu:ref_F3_z5_S1_degC_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F3_z5_S1(degC)" .
+
+cu:ref_F3_z5_S1_lux_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F3_z5_S1(lux)" .
+
+cu:ref_F4_z1_AC1_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F4_z1_AC1(kW)" .
+
+cu:ref_F4_z1_AC2_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F4_z1_AC2(kW)" .
+
+cu:ref_F4_z1_AC3_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F4_z1_AC3(kW)" .
+
+cu:ref_F4_z1_AC4_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F4_z1_AC4(kW)" .
+
+cu:ref_F4_z1_Light_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F4_z1_Light(kW)" .
+
+cu:ref_F4_z1_Plug_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F4_z1_Plug(kW)" .
+
+cu:ref_F4_z1_S1_RH__ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F4_z1_S1(RH%)" .
+
+cu:ref_F4_z1_S1_degC_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F4_z1_S1(degC)" .
+
+cu:ref_F4_z1_S1_lux_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F4_z1_S1(lux)" .
+
+cu:ref_F4_z2_AC1_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F4_z2_AC1(kW)" .
+
+cu:ref_F4_z2_Light_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F4_z2_Light(kW)" .
+
+cu:ref_F4_z2_Plug_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F4_z2_Plug(kW)" .
+
+cu:ref_F4_z2_S1_RH__ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F4_z2_S1(RH%)" .
+
+cu:ref_F4_z2_S1_degC_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F4_z2_S1(degC)" .
+
+cu:ref_F4_z2_S1_lux_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F4_z2_S1(lux)" .
+
+cu:ref_F4_z3_Light_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F4_z3_Light(kW)" .
+
+cu:ref_F4_z3_Plug_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F4_z3_Plug(kW)" .
+
+cu:ref_F4_z3_S1_RH__ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F4_z3_S1(RH%)" .
+
+cu:ref_F4_z3_S1_degC_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F4_z3_S1(degC)" .
+
+cu:ref_F4_z4_AC1_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F4_z4_AC1(kW)" .
+
+cu:ref_F4_z4_Light_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F4_z4_Light(kW)" .
+
+cu:ref_F4_z4_Plug_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F4_z4_Plug(kW)" .
+
+cu:ref_F4_z4_S1_RH__ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F4_z4_S1(RH%)" .
+
+cu:ref_F4_z4_S1_degC_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F4_z4_S1(degC)" .
+
+cu:ref_F4_z4_S1_lux_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F4_z4_S1(lux)" .
+
+cu:ref_F4_z5_AC1_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F4_z5_AC1(kW)" .
+
+cu:ref_F4_z5_Light_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F4_z5_Light(kW)" .
+
+cu:ref_F4_z5_Plug_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F4_z5_Plug(kW)" .
+
+cu:ref_F4_z5_S1_RH__ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F4_z5_S1(RH%)" .
+
+cu:ref_F4_z5_S1_degC_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F4_z5_S1(degC)" .
+
+cu:ref_F4_z5_S1_lux_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F4_z5_S1(lux)" .
+
+cu:ref_F5_z1_AC1_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F5_z1_AC1(kW)" .
+
+cu:ref_F5_z1_AC2_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F5_z1_AC2(kW)" .
+
+cu:ref_F5_z1_AC3_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F5_z1_AC3(kW)" .
+
+cu:ref_F5_z1_AC4_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F5_z1_AC4(kW)" .
+
+cu:ref_F5_z1_Light_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F5_z1_Light(kW)" .
+
+cu:ref_F5_z1_Plug_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F5_z1_Plug(kW)" .
+
+cu:ref_F5_z1_S1_RH__ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F5_z1_S1(RH%)" .
+
+cu:ref_F5_z1_S1_degC_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F5_z1_S1(degC)" .
+
+cu:ref_F5_z1_S1_lux_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F5_z1_S1(lux)" .
+
+cu:ref_F5_z2_AC1_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F5_z2_AC1(kW)" .
+
+cu:ref_F5_z2_Light_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F5_z2_Light(kW)" .
+
+cu:ref_F5_z2_Plug_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F5_z2_Plug(kW)" .
+
+cu:ref_F5_z2_S1_RH__ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F5_z2_S1(RH%)" .
+
+cu:ref_F5_z2_S1_degC_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F5_z2_S1(degC)" .
+
+cu:ref_F5_z2_S1_lux_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F5_z2_S1(lux)" .
+
+cu:ref_F5_z3_Light_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F5_z3_Light(kW)" .
+
+cu:ref_F5_z3_Plug_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F5_z3_Plug(kW)" .
+
+cu:ref_F5_z3_S1_RH__ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F5_z3_S1(RH%)" .
+
+cu:ref_F5_z3_S1_degC_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F5_z3_S1(degC)" .
+
+cu:ref_F5_z4_AC1_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F5_z4_AC1(kW)" .
+
+cu:ref_F5_z4_Light_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F5_z4_Light(kW)" .
+
+cu:ref_F5_z4_Plug_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F5_z4_Plug(kW)" .
+
+cu:ref_F5_z4_S1_RH__ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F5_z4_S1(RH%)" .
+
+cu:ref_F5_z4_S1_degC_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F5_z4_S1(degC)" .
+
+cu:ref_F5_z4_S1_lux_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F5_z4_S1(lux)" .
+
+cu:ref_F5_z5_AC1_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F5_z5_AC1(kW)" .
+
+cu:ref_F5_z5_Light_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F5_z5_Light(kW)" .
+
+cu:ref_F5_z5_Plug_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F5_z5_Plug(kW)" .
+
+cu:ref_F5_z5_S1_RH__ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F5_z5_S1(RH%)" .
+
+cu:ref_F5_z5_S1_degC_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F5_z5_S1(degC)" .
+
+cu:ref_F5_z5_S1_lux_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F5_z5_S1(lux)" .
+
+cu:ref_F7_z1_AC1_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F7_z1_AC1(kW)" .
+
+cu:ref_F7_z1_AC2_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F7_z1_AC2(kW)" .
+
+cu:ref_F7_z1_AC3_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F7_z1_AC3(kW)" .
+
+cu:ref_F7_z1_AC4_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F7_z1_AC4(kW)" .
+
+cu:ref_F7_z1_Light_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F7_z1_Light(kW)" .
+
+cu:ref_F7_z1_Plug_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F7_z1_Plug(kW)" .
+
+cu:ref_F7_z1_S1_RH__ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F7_z1_S1(RH%)" .
+
+cu:ref_F7_z1_S1_degC_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F7_z1_S1(degC)" .
+
+cu:ref_F7_z1_S1_lux_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F7_z1_S1(lux)" .
+
+cu:ref_F7_z2_AC1_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F7_z2_AC1(kW)" .
+
+cu:ref_F7_z2_Light_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F7_z2_Light(kW)" .
+
+cu:ref_F7_z2_Plug_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F7_z2_Plug(kW)" .
+
+cu:ref_F7_z2_S1_RH__ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F7_z2_S1(RH%)" .
+
+cu:ref_F7_z2_S1_degC_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F7_z2_S1(degC)" .
+
+cu:ref_F7_z2_S1_lux_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F7_z2_S1(lux)" .
+
+cu:ref_F7_z3_Light_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F7_z3_Light(kW)" .
+
+cu:ref_F7_z3_Plug_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F7_z3_Plug(kW)" .
+
+cu:ref_F7_z3_S1_RH__ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F7_z3_S1(RH%)" .
+
+cu:ref_F7_z3_S1_degC_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F7_z3_S1(degC)" .
+
+cu:ref_F7_z4_AC1_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F7_z4_AC1(kW)" .
+
+cu:ref_F7_z4_Light_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F7_z4_Light(kW)" .
+
+cu:ref_F7_z4_Plug_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F7_z4_Plug(kW)" .
+
+cu:ref_F7_z4_S1_RH__ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F7_z4_S1(RH%)" .
+
+cu:ref_F7_z4_S1_degC_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F7_z4_S1(degC)" .
+
+cu:ref_F7_z4_S1_lux_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F7_z4_S1(lux)" .
+
+cu:ref_F7_z5_AC1_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F7_z5_AC1(kW)" .
+
+cu:ref_F7_z5_Light_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F7_z5_Light(kW)" .
+
+cu:ref_F7_z5_Plug_kW_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F7_z5_Plug(kW)" .
+
+cu:ref_F7_z5_S1_RH__ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F7_z5_S1(RH%)" .
+
+cu:ref_F7_z5_S1_degC_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F7_z5_S1(degC)" .
+
+cu:ref_F7_z5_S1_lux_ a ref:TimeseriesReference ;
+    ref:hasTimeseriesId "F7_z5_S1(lux)" .
+
+cu:F3_Z3 a brick:HVAC_Zone ;
+    rdfs:label "Floor 3 · Zone 3 (stairwell/corridor, no AC)" ;
+    brick:hasPoint cu:F3_z3_S1_RH__,
+        cu:F3_z3_S1_degC_ .
+
+cu:F4_Z3 a brick:HVAC_Zone ;
+    rdfs:label "Floor 4 · Zone 3 (stairwell/corridor, no AC)" ;
+    brick:hasPoint cu:F4_z3_S1_RH__,
+        cu:F4_z3_S1_degC_ .
+
+cu:F5_Z3 a brick:HVAC_Zone ;
+    rdfs:label "Floor 5 · Zone 3 (stairwell/corridor, no AC)" ;
+    brick:hasPoint cu:F5_z3_S1_RH__,
+        cu:F5_z3_S1_degC_ .
+
+cu:F7_Z3 a brick:HVAC_Zone ;
+    rdfs:label "Floor 7 · Zone 3 (stairwell/corridor, no AC)" ;
+    brick:hasPoint cu:F7_z3_S1_RH__,
+        cu:F7_z3_S1_degC_ .
+
+cu:F3_Z2 a brick:HVAC_Zone ;
+    rdfs:label "Floor 3 · Zone 2" ;
+    brick:hasPoint cu:F3_z2_S1_RH__,
+        cu:F3_z2_S1_degC_,
+        cu:F3_z2_S1_lux_ .
+
+cu:F3_Z4 a brick:HVAC_Zone ;
+    rdfs:label "Floor 3 · Zone 4" ;
+    brick:hasPoint cu:F3_z4_S1_RH__,
+        cu:F3_z4_S1_degC_,
+        cu:F3_z4_S1_lux_ .
+
+cu:F3_Z5 a brick:HVAC_Zone ;
+    rdfs:label "Floor 3 · Zone 5" ;
+    brick:hasPoint cu:F3_z5_S1_RH__,
+        cu:F3_z5_S1_degC_,
+        cu:F3_z5_S1_lux_ .
+
+cu:F4_Z2 a brick:HVAC_Zone ;
+    rdfs:label "Floor 4 · Zone 2" ;
+    brick:hasPoint cu:F4_z2_S1_RH__,
+        cu:F4_z2_S1_degC_,
+        cu:F4_z2_S1_lux_ .
+
+cu:F4_Z4 a brick:HVAC_Zone ;
+    rdfs:label "Floor 4 · Zone 4" ;
+    brick:hasPoint cu:F4_z4_S1_RH__,
+        cu:F4_z4_S1_degC_,
+        cu:F4_z4_S1_lux_ .
+
+cu:F4_Z5 a brick:HVAC_Zone ;
+    rdfs:label "Floor 4 · Zone 5" ;
+    brick:hasPoint cu:F4_z5_S1_RH__,
+        cu:F4_z5_S1_degC_,
+        cu:F4_z5_S1_lux_ .
+
+cu:F5_Z2 a brick:HVAC_Zone ;
+    rdfs:label "Floor 5 · Zone 2" ;
+    brick:hasPoint cu:F5_z2_S1_RH__,
+        cu:F5_z2_S1_degC_,
+        cu:F5_z2_S1_lux_ .
+
+cu:F5_Z4 a brick:HVAC_Zone ;
+    rdfs:label "Floor 5 · Zone 4" ;
+    brick:hasPoint cu:F5_z4_S1_RH__,
+        cu:F5_z4_S1_degC_,
+        cu:F5_z4_S1_lux_ .
+
+cu:F5_Z5 a brick:HVAC_Zone ;
+    rdfs:label "Floor 5 · Zone 5" ;
+    brick:hasPoint cu:F5_z5_S1_RH__,
+        cu:F5_z5_S1_degC_,
+        cu:F5_z5_S1_lux_ .
+
+cu:F7_Z2 a brick:HVAC_Zone ;
+    rdfs:label "Floor 7 · Zone 2" ;
+    brick:hasPoint cu:F7_z2_S1_RH__,
+        cu:F7_z2_S1_degC_,
+        cu:F7_z2_S1_lux_ .
+
+cu:F7_Z4 a brick:HVAC_Zone ;
+    rdfs:label "Floor 7 · Zone 4" ;
+    brick:hasPoint cu:F7_z4_S1_RH__,
+        cu:F7_z4_S1_degC_,
+        cu:F7_z4_S1_lux_ .
+
+cu:F7_Z5 a brick:HVAC_Zone ;
+    rdfs:label "Floor 7 · Zone 5" ;
+    brick:hasPoint cu:F7_z5_S1_RH__,
+        cu:F7_z5_S1_degC_,
+        cu:F7_z5_S1_lux_ .
+
+cu:F3_Z1 a brick:HVAC_Zone ;
+    rdfs:label "Floor 3 · Zone 1" ;
+    brick:hasPoint cu:F3_z1_S1_RH__,
+        cu:F3_z1_S1_degC_,
+        cu:F3_z1_S1_lux_ .
+
+cu:F4_Z1 a brick:HVAC_Zone ;
+    rdfs:label "Floor 4 · Zone 1" ;
+    brick:hasPoint cu:F4_z1_S1_RH__,
+        cu:F4_z1_S1_degC_,
+        cu:F4_z1_S1_lux_ .
+
+cu:F5_Z1 a brick:HVAC_Zone ;
+    rdfs:label "Floor 5 · Zone 1" ;
+    brick:hasPoint cu:F5_z1_S1_RH__,
+        cu:F5_z1_S1_degC_,
+        cu:F5_z1_S1_lux_ .
+
+cu:F7_Z1 a brick:HVAC_Zone ;
+    rdfs:label "Floor 7 · Zone 1" ;
+    brick:hasPoint cu:F7_z1_S1_RH__,
+        cu:F7_z1_S1_degC_,
+        cu:F7_z1_S1_lux_ .
+

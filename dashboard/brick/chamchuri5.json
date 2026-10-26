@@ -1,0 +1,499 @@
+{
+ "floors": [
+  3,
+  4,
+  5,
+  7
+ ],
+ "zones": [
+  {
+   "zone": "F3_Z1",
+   "floor": 3,
+   "number": 1
+  },
+  {
+   "zone": "F3_Z2",
+   "floor": 3,
+   "number": 2
+  },
+  {
+   "zone": "F3_Z3",
+   "floor": 3,
+   "number": 3
+  },
+  {
+   "zone": "F3_Z4",
+   "floor": 3,
+   "number": 4
+  },
+  {
+   "zone": "F3_Z5",
+   "floor": 3,
+   "number": 5
+  },
+  {
+   "zone": "F4_Z1",
+   "floor": 4,
+   "number": 1
+  },
+  {
+   "zone": "F4_Z2",
+   "floor": 4,
+   "number": 2
+  },
+  {
+   "zone": "F4_Z3",
+   "floor": 4,
+   "number": 3
+  },
+  {
+   "zone": "F4_Z4",
+   "floor": 4,
+   "number": 4
+  },
+  {
+   "zone": "F4_Z5",
+   "floor": 4,
+   "number": 5
+  },
+  {
+   "zone": "F5_Z1",
+   "floor": 5,
+   "number": 1
+  },
+  {
+   "zone": "F5_Z2",
+   "floor": 5,
+   "number": 2
+  },
+  {
+   "zone": "F5_Z3",
+   "floor": 5,
+   "number": 3
+  },
+  {
+   "zone": "F5_Z4",
+   "floor": 5,
+   "number": 4
+  },
+  {
+   "zone": "F5_Z5",
+   "floor": 5,
+   "number": 5
+  },
+  {
+   "zone": "F7_Z1",
+   "floor": 7,
+   "number": 1
+  },
+  {
+   "zone": "F7_Z2",
+   "floor": 7,
+   "number": 2
+  },
+  {
+   "zone": "F7_Z3",
+   "floor": 7,
+   "number": 3
+  },
+  {
+   "zone": "F7_Z4",
+   "floor": 7,
+   "number": 4
+  },
+  {
+   "zone": "F7_Z5",
+   "floor": 7,
+   "number": 5
+  }
+ ],
+ "units": [
+  {
+   "asset_id": "F3_Z1_AC1",
+   "label": "Floor 3 \u00b7 Zone 1 \u00b7 AC1",
+   "floor": 3,
+   "zone": 1,
+   "ac": 1,
+   "position": "z1_AC1",
+   "power_column": "F3_z1_AC1(kW)",
+   "temp_column": "F3_z1_S1(degC)",
+   "rh_column": "F3_z1_S1(RH%)",
+   "supply_group": "Floor3_CHW_assumed",
+   "analysed": false
+  },
+  {
+   "asset_id": "F3_Z1_AC2",
+   "label": "Floor 3 \u00b7 Zone 1 \u00b7 AC2",
+   "floor": 3,
+   "zone": 1,
+   "ac": 2,
+   "position": "z1_AC2",
+   "power_column": "F3_z1_AC2(kW)",
+   "temp_column": "F3_z1_S1(degC)",
+   "rh_column": "F3_z1_S1(RH%)",
+   "supply_group": "Floor3_CHW_assumed",
+   "analysed": false
+  },
+  {
+   "asset_id": "F3_Z1_AC3",
+   "label": "Floor 3 \u00b7 Zone 1 \u00b7 AC3",
+   "floor": 3,
+   "zone": 1,
+   "ac": 3,
+   "position": "z1_AC3",
+   "power_column": "F3_z1_AC3(kW)",
+   "temp_column": "F3_z1_S1(degC)",
+   "rh_column": "F3_z1_S1(RH%)",
+   "supply_group": "Floor3_CHW_assumed",
+   "analysed": false
+  },
+  {
+   "asset_id": "F3_Z1_AC4",
+   "label": "Floor 3 \u00b7 Zone 1 \u00b7 AC4",
+   "floor": 3,
+   "zone": 1,
+   "ac": 4,
+   "position": "z1_AC4",
+   "power_column": "F3_z1_AC4(kW)",
+   "temp_column": "F3_z1_S1(degC)",
+   "rh_column": "F3_z1_S1(RH%)",
+   "supply_group": "Floor3_CHW_assumed",
+   "analysed": true
+  },
+  {
+   "asset_id": "F3_Z2_AC1",
+   "label": "Floor 3 \u00b7 Zone 2 \u00b7 AC1",
+   "floor": 3,
+   "zone": 2,
+   "ac": 1,
+   "position": "z2_AC1",
+   "power_column": "F3_z2_AC1(kW)",
+   "temp_column": "F3_z2_S1(degC)",
+   "rh_column": "F3_z2_S1(RH%)",
+   "supply_group": "Floor3_CHW_assumed",
+   "analysed": true
+  },
+  {
+   "asset_id": "F3_Z4_AC1",
+   "label": "Floor 3 \u00b7 Zone 4 \u00b7 AC1",
+   "floor": 3,
+   "zone": 4,
+   "ac": 1,
+   "position": "z4_AC1",
+   "power_column": "F3_z4_AC1(kW)",
+   "temp_column": "F3_z4_S1(degC)",
+   "rh_column": "F3_z4_S1(RH%)",
+   "supply_group": "Floor3_CHW_assumed",
+   "analysed": true
+  },
+  {
+   "asset_id": "F3_Z5_AC1",
+   "label": "Floor 3 \u00b7 Zone 5 \u00b7 AC1",
+   "floor": 3,
+   "zone": 5,
+   "ac": 1,
+   "position": "z5_AC1",
+   "power_column": "F3_z5_AC1(kW)",
+   "temp_column": "F3_z5_S1(degC)",
+   "rh_column": "F3_z5_S1(RH%)",
+   "supply_group": "Floor3_CHW_assumed",
+   "analysed": true
+  },
+  {
+   "asset_id": "F4_Z1_AC1",
+   "label": "Floor 4 \u00b7 Zone 1 \u00b7 AC1",
+   "floor": 4,
+   "zone": 1,
+   "ac": 1,
+   "position": "z1_AC1",
+   "power_column": "F4_z1_AC1(kW)",
+   "temp_column": "F4_z1_S1(degC)",
+   "rh_column": "F4_z1_S1(RH%)",
+   "supply_group": "Floor4_CHW_assumed",
+   "analysed": false
+  },
+  {
+   "asset_id": "F4_Z1_AC2",
+   "label": "Floor 4 \u00b7 Zone 1 \u00b7 AC2",
+   "floor": 4,
+   "zone": 1,
+   "ac": 2,
+   "position": "z1_AC2",
+   "power_column": "F4_z1_AC2(kW)",
+   "temp_column": "F4_z1_S1(degC)",
+   "rh_column": "F4_z1_S1(RH%)",
+   "supply_group": "Floor4_CHW_assumed",
+   "analysed": false
+  },
+  {
+   "asset_id": "F4_Z1_AC3",
+   "label": "Floor 4 \u00b7 Zone 1 \u00b7 AC3",
+   "floor": 4,
+   "zone": 1,
+   "ac": 3,
+   "position": "z1_AC3",
+   "power_column": "F4_z1_AC3(kW)",
+   "temp_column": "F4_z1_S1(degC)",
+   "rh_column": "F4_z1_S1(RH%)",
+   "supply_group": "Floor4_CHW_assumed",
+   "analysed": false
+  },
+  {
+   "asset_id": "F4_Z1_AC4",
+   "label": "Floor 4 \u00b7 Zone 1 \u00b7 AC4",
+   "floor": 4,
+   "zone": 1,
+   "ac": 4,
+   "position": "z1_AC4",
+   "power_column": "F4_z1_AC4(kW)",
+   "temp_column": "F4_z1_S1(degC)",
+   "rh_column": "F4_z1_S1(RH%)",
+   "supply_group": "Floor4_CHW_assumed",
+   "analysed": true
+  },
+  {
+   "asset_id": "F4_Z2_AC1",
+   "label": "Floor 4 \u00b7 Zone 2 \u00b7 AC1",
+   "floor": 4,
+   "zone": 2,
+   "ac": 1,
+   "position": "z2_AC1",
+   "power_column": "F4_z2_AC1(kW)",
+   "temp_column": "F4_z2_S1(degC)",
+   "rh_column": "F4_z2_S1(RH%)",
+   "supply_group": "Floor4_CHW_assumed",
+   "analysed": true
+  },
+  {
+   "asset_id": "F4_Z4_AC1",
+   "label": "Floor 4 \u00b7 Zone 4 \u00b7 AC1",
+   "floor": 4,
+   "zone": 4,
+   "ac": 1,
+   "position": "z4_AC1",
+   "power_column": "F4_z4_AC1(kW)",
+   "temp_column": "F4_z4_S1(degC)",
+   "rh_column": "F4_z4_S1(RH%)",
+   "supply_group": "Floor4_CHW_assumed",
+   "analysed": true
+  },
+  {
+   "asset_id": "F4_Z5_AC1",
+   "label": "Floor 4 \u00b7 Zone 5 \u00b7 AC1",
+   "floor": 4,
+   "zone": 5,
+   "ac": 1,
+   "position": "z5_AC1",
+   "power_column": "F4_z5_AC1(kW)",
+   "temp_column": "F4_z5_S1(degC)",
+   "rh_column": "F4_z5_S1(RH%)",
+   "supply_group": "Floor4_CHW_assumed",
+   "analysed": true
+  },
+  {
+   "asset_id": "F5_Z1_AC1",
+   "label": "Floor 5 \u00b7 Zone 1 \u00b7 AC1",
+   "floor": 5,
+   "zone": 1,
+   "ac": 1,
+   "position": "z1_AC1",
+   "power_column": "F5_z1_AC1(kW)",
+   "temp_column": "F5_z1_S1(degC)",
+   "rh_column": "F5_z1_S1(RH%)",
+   "supply_group": "Floor5_CHW_assumed",
+   "analysed": false
+  },
+  {
+   "asset_id": "F5_Z1_AC2",
+   "label": "Floor 5 \u00b7 Zone 1 \u00b7 AC2",
+   "floor": 5,
+   "zone": 1,
+   "ac": 2,
+   "position": "z1_AC2",
+   "power_column": "F5_z1_AC2(kW)",
+   "temp_column": "F5_z1_S1(degC)",
+   "rh_column": "F5_z1_S1(RH%)",
+   "supply_group": "Floor5_CHW_assumed",
+   "analysed": false
+  },
+  {
+   "asset_id": "F5_Z1_AC3",
+   "label": "Floor 5 \u00b7 Zone 1 \u00b7 AC3",
+   "floor": 5,
+   "zone": 1,
+   "ac": 3,
+   "position": "z1_AC3",
+   "power_column": "F5_z1_AC3(kW)",
+   "temp_column": "F5_z1_S1(degC)",
+   "rh_column": "F5_z1_S1(RH%)",
+   "supply_group": "Floor5_CHW_assumed",
+   "analysed": false
+  },
+  {
+   "asset_id": "F5_Z1_AC4",
+   "label": "Floor 5 \u00b7 Zone 1 \u00b7 AC4",
+   "floor": 5,
+   "zone": 1,
+   "ac": 4,
+   "position": "z1_AC4",
+   "power_column": "F5_z1_AC4(kW)",
+   "temp_column": "F5_z1_S1(degC)",
+   "rh_column": "F5_z1_S1(RH%)",
+   "supply_group": "Floor5_CHW_assumed",
+   "analysed": true
+  },
+  {
+   "asset_id": "F5_Z2_AC1",
+   "label": "Floor 5 \u00b7 Zone 2 \u00b7 AC1",
+   "floor": 5,
+   "zone": 2,
+   "ac": 1,
+   "position": "z2_AC1",
+   "power_column": "F5_z2_AC1(kW)",
+   "temp_column": "F5_z2_S1(degC)",
+   "rh_column": "F5_z2_S1(RH%)",
+   "supply_group": "Floor5_CHW_assumed",
+   "analysed": true
+  },
+  {
+   "asset_id": "F5_Z4_AC1",
+   "label": "Floor 5 \u00b7 Zone 4 \u00b7 AC1",
+   "floor": 5,
+   "zone": 4,
+   "ac": 1,
+   "position": "z4_AC1",
+   "power_column": "F5_z4_AC1(kW)",
+   "temp_column": "F5_z4_S1(degC)",
+   "rh_column": "F5_z4_S1(RH%)",
+   "supply_group": "Floor5_CHW_assumed",
+   "analysed": true
+  },
+  {
+   "asset_id": "F5_Z5_AC1",
+   "label": "Floor 5 \u00b7 Zone 5 \u00b7 AC1",
+   "floor": 5,
+   "zone": 5,
+   "ac": 1,
+   "position": "z5_AC1",
+   "power_column": "F5_z5_AC1(kW)",
+   "temp_column": "F5_z5_S1(degC)",
+   "rh_column": "F5_z5_S1(RH%)",
+   "supply_group": "Floor5_CHW_assumed",
+   "analysed": true
+  },
+  {
+   "asset_id": "F7_Z1_AC1",
+   "label": "Floor 7 \u00b7 Zone 1 \u00b7 AC1",
+   "floor": 7,
+   "zone": 1,
+   "ac": 1,
+   "position": "z1_AC1",
+   "power_column": "F7_z1_AC1(kW)",
+   "temp_column": "F7_z1_S1(degC)",
+   "rh_column": "F7_z1_S1(RH%)",
+   "supply_group": "Floor7_CHW_assumed",
+   "analysed": false
+  },
+  {
+   "asset_id": "F7_Z1_AC2",
+   "label": "Floor 7 \u00b7 Zone 1 \u00b7 AC2",
+   "floor": 7,
+   "zone": 1,
+   "ac": 2,
+   "position": "z1_AC2",
+   "power_column": "F7_z1_AC2(kW)",
+   "temp_column": "F7_z1_S1(degC)",
+   "rh_column": "F7_z1_S1(RH%)",
+   "supply_group": "Floor7_CHW_assumed",
+   "analysed": false
+  },
+  {
+   "asset_id": "F7_Z1_AC3",
+   "label": "Floor 7 \u00b7 Zone 1 \u00b7 AC3",
+   "floor": 7,
+   "zone": 1,
+   "ac": 3,
+   "position": "z1_AC3",
+   "power_column": "F7_z1_AC3(kW)",
+   "temp_column": "F7_z1_S1(degC)",
+   "rh_column": "F7_z1_S1(RH%)",
+   "supply_group": "Floor7_CHW_assumed",
+   "analysed": false
+  },
+  {
+   "asset_id": "F7_Z1_AC4",
+   "label": "Floor 7 \u00b7 Zone 1 \u00b7 AC4",
+   "floor": 7,
+   "zone": 1,
+   "ac": 4,
+   "position": "z1_AC4",
+   "power_column": "F7_z1_AC4(kW)",
+   "temp_column": "F7_z1_S1(degC)",
+   "rh_column": "F7_z1_S1(RH%)",
+   "supply_group": "Floor7_CHW_assumed",
+   "analysed": true
+  },
+  {
+   "asset_id": "F7_Z2_AC1",
+   "label": "Floor 7 \u00b7 Zone 2 \u00b7 AC1",
+   "floor": 7,
+   "zone": 2,
+   "ac": 1,
+   "position": "z2_AC1",
+   "power_column": "F7_z2_AC1(kW)",
+   "temp_column": "F7_z2_S1(degC)",
+   "rh_column": "F7_z2_S1(RH%)",
+   "supply_group": "Floor7_CHW_assumed",
+   "analysed": true
+  },
+  {
+   "asset_id": "F7_Z4_AC1",
+   "label": "Floor 7 \u00b7 Zone 4 \u00b7 AC1",
+   "floor": 7,
+   "zone": 4,
+   "ac": 1,
+   "position": "z4_AC1",
+   "power_column": "F7_z4_AC1(kW)",
+   "temp_column": "F7_z4_S1(degC)",
+   "rh_column": "F7_z4_S1(RH%)",
+   "supply_group": "Floor7_CHW_assumed",
+   "analysed": true
+  },
+  {
+   "asset_id": "F7_Z5_AC1",
+   "label": "Floor 7 \u00b7 Zone 5 \u00b7 AC1",
+   "floor": 7,
+   "zone": 5,
+   "ac": 1,
+   "position": "z5_AC1",
+   "power_column": "F7_z5_AC1(kW)",
+   "temp_column": "F7_z5_S1(degC)",
+   "rh_column": "F7_z5_S1(RH%)",
+   "supply_group": "Floor7_CHW_assumed",
+   "analysed": true
+  }
+ ],
+ "points": 124,
+ "loops": [
+  {
+   "loop": "Floor3_CHW_assumed",
+   "floor": 3,
+   "assumed": true
+  },
+  {
+   "loop": "Floor4_CHW_assumed",
+   "floor": 4,
+   "assumed": true
+  },
+  {
+   "loop": "Floor5_CHW_assumed",
+   "floor": 5,
+   "assumed": true
+  },
+  {
+   "loop": "Floor7_CHW_assumed",
+   "floor": 7,
+   "assumed": true
+  }
+ ]
+}

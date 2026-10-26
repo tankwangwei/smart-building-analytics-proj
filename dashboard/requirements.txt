@@ -4,3 +4,7 @@ matplotlib
 scikit-learn
 streamlit>=1.50
 plotly>=5.0
+rdflib>=6.0
+scipy
+gspread>=6.0
+google-auth

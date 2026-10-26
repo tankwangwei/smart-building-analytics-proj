@@ -11,3 +11,5 @@ _backup/
 __pycache__/
 *.pyc
 .venv/
+dashboard/fm.db
+.streamlit/secrets.toml

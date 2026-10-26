@@ -68,9 +68,12 @@ def _num(series, digits=2):
 LIGHT_ON_KW = 0.2
 
 
-def payload(details, zone_loads, summaries, analysed_floors, start, days, running_kw, scope_name):
+def payload(details, zone_loads, summaries, analysed_floors, start, days, running_kw, scope_name, forecast=None, whatif=None,
+            mode=None):
     """details: {floor: flagged 15-min AC detail}; zone_loads: {floor: 15-min lighting/plug/lux per zone};
-    summaries: {unit: {...Jul-Dec metrics...}}."""
+    summaries: {unit: {...Jul-Dec metrics...}}.
+    forecast: optional {"fc": {unit: Series on the slots}, "lo": {...}, "hi": {...}} (Forecast mode);
+    whatif: optional {"arrays": {unit: (kW Series, °C Series)}, "tariff": THB/kWh, "band": (lo, hi)} (What-if mode)."""
     slots = pd.date_range(start, periods=96 * days, freq="15min")
     units, zones, outdoor = [], [], None
     for floor in analysed_floors:
@@ -91,6 +94,14 @@ def payload(details, zone_loads, summaries, analysed_floors, start, days, runnin
                           "temp": _num(part["indoor_temp_C"], 1), "rh": _num(part["indoor_rh_pct"], 0),
                           "status": status.astype(int).tolist(), "reason": reason.astype(int).tolist(),
                           "summary": summaries.get(unit, {})})
+            if forecast:
+                units[-1]["fc"] = _num(forecast["fc"][unit].reindex(slots))
+                if forecast.get("lo") and unit in forecast["lo"]:
+                    units[-1]["fcLo"] = _num(forecast["lo"][unit].reindex(slots), 1)
+                    units[-1]["fcHi"] = _num(forecast["hi"][unit].reindex(slots), 1)
+            if whatif:
+                kw_, temp_ = whatif["arrays"][unit]
+                units[-1]["simkw"], units[-1]["simtemp"] = _num(kw_.reindex(slots)), _num(temp_.reindex(slots), 1)
         # "Normally off" for a floor = no AC unit on that floor is scheduled on (unknown schedule counts as on)
         sched = fd.pivot_table(index="Date", columns="unit", values="schedule_on", aggfunc="first").reindex(slots)
         floor_off = sched.eq(False).all(axis=1) & sched.notna().any(axis=1)
@@ -107,7 +118,8 @@ def payload(details, zone_loads, summaries, analysed_floors, start, days, runnin
                               "offHours": (floor_off.astype(int) * (zone != 3)).tolist()})
     return {"scope": scope_name, "analysed": analysed_floors, "geometry": geometry(), "zoneLoads": zones,
             "times": [t.strftime("%Y-%m-%dT%H:%M") for t in slots], "outdoor": outdoor or [],
-            "units": units, "runningKW": running_kw,
+            "units": units, "runningKW": running_kw, "mode": mode, "hasForecast": bool(forecast), "hasWhatIf": bool(whatif),
+            "tariff": whatif["tariff"] if whatif else None, "band": list(whatif["band"]) if whatif else None,
             "startIndex": int(np.argmax(slots.strftime("%H:%M") == "14:00")) if days else 0}
 
 

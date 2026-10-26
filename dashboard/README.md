@@ -35,10 +35,23 @@ These are suggestions to investigate, not diagnoses.
 The sidebar **View** opens on **Whole building** (Floors 3, 4, 5 and 7 combined); pick a single floor to focus on it. Tabs:
 - **Overview**: KPIs, top units/events to review, next-day forecast, comfort check.
 - **Digital twin**: interactive 3D model of Chamchuri 5 (three.js), traced from the CU-BEMS paper's floor plan and building view. Replay any 1–7 days at 15-minute steps with the sun following its real path over Bangkok; colour zones by AC status, power, power vs expected, indoor temperature, lighting, lights on after hours, plug loads, daylight, or a Jul–Dec summary. Ceiling lights glow with each zone's actual lighting power (heavily used zones bloom); hover for live readings, click a zone for its detail panel and power chart; isolate or explode floors, X-ray the facade, auto-rotate. Schematic to scale, not a surveyed model. Needs internet access to load three.js from jsDelivr.
-- **Priority list**: units and events ranked by weighted waste (kWh) = excess kWh + an extra for after-hours waste (counts 1.5×) − a discount for hot-day waste (counts 0.5×), shown as a sum with a worked example. Priority level: 🔴 High = the top units that together cause half of all weighted waste, 🟠 Medium = the next 30 %, 🟢 Low = the rest. Includes filters, CSV export, a one-unit drill-down for the selected timeframe and a heatmap.
+- **Priority list**: units and events ranked by the **triage score** = excess THB × confidence ÷ effort. Confidence (0–100) blends rule agreement, duration, recurrence, weather and data quality; effort is Low (schedule/timer), Medium (inspect) or High (repair). A magnitude-vs-confidence chart shows the "act first" corner. Priority level: 🔴 High = the top items that together make up half of the total score, 🟠 Medium = the next 30 %, 🟢 Low = the rest. Includes filters, CSV export, a one-unit drill-down and an asset history card.
 - **Setpoint & schedule simulator**: estimates kWh/THB saved and comfort compliance for a new setpoint and AC operating window, and recommends a setpoint.
 - **Compare floors**: building-wide summary and priority list, each unit vs the same unit on other floors, and daily profiles side by side.
 - **Forecast**: model comparison (including the weather-aware M5/M6 and "Typical weekly pattern + weather"), and actual vs forecast for any week. "Typical weekly pattern + weather" shifts the typical weekly forecast by the floor's baseline kW-per-°C slope × how much warmer or cooler the hour is than a normal baseline weekday hour (Open-Meteo, observed weather standing in for a forecast).
 
 The anomaly thresholds sit in the sidebar under **Advanced** and apply to every tab. The notebook defaults are k = 1.5, 0.5 kW and 8 intervals.
 All figures are screening estimates: flags are not diagnosed faults, and savings need a measured trial.
+
+
+## FM workflow (alert → triage → context → work order → execute → verify)
+
+Plan: `docs/FM_WORKFLOW_PLAN.md`. Accuracy checks: `docs/VERIFICATION.md`.
+
+- **Work orders tab**: incidents (one per asset and pattern, e.g. "runs while the building is closed") with a status lifecycle (Open → Acknowledged → Work order raised → Resolved → Verified, or Reopened / Dismissed). Raise a work order in one click: symptom, evidence, checklist per pattern, due date in working days, and a suggested slot in the lowest-forecast hour of opening hours. Close-outs (fault confirmed / no fault found / legitimate use) feed the learning loop: precision, confidence track record and exceptions. Fixes are verified against 28 days before and after.
+- **Maintenance tab**: maintenance log (manual entry, CSV import), fleet health score, 30-day fault risk, remaining useful life and a per-unit degradation chart.
+- **Digital twin modes**: Replay, Forecast next day, What-if (uses the simulator's settings).
+- **Building model**: `dashboard/brick/chamchuri5.ttl` (Brick 1.3), regenerate with `python dashboard/brick/build_brick.py`. Supply groups are assumed (one chilled-water loop per floor).
+- **Storage**: SQLite `dashboard/fm.db` (created on first run, git-ignored). Add a `[gsheets]` section to `.streamlit/secrets.toml` to use Google Sheets instead (plan §12; the Sheets backend is not covered by automated tests).
+- **Simulated data**: the first run seeds about 10 close-outs and an 18-month maintenance history, all stored with `simulated = 1` and shown with a "Simulated" badge. The fault-risk model and likely-cause ranking are trained on that simulated log, so they demonstrate the method only. Delete `dashboard/fm.db` to start empty-then-reseeded, or import real records.
+- **Tests**: `pip install -r requirements-dev.txt`, then `python -m pytest` from the project folder (about a minute; uses a throw-away database).
