@@ -106,6 +106,17 @@ h3 {font-size: 1.05rem !important; padding: 1rem 0 .1rem 0 !important;}
 .item.ai .chip.sev {color: var(--sev); border-color: var(--sev); font-weight: 600; letter-spacing: .04em;}
 .takeaway {border-left: 3px solid #3b8beb; background: rgba(59,139,235,.10); border-radius: 0 .4rem .4rem 0;
            padding: .55rem .9rem; line-height: 1.5;}
+/* "Ask the data": a round button floating in the bottom-right corner that opens the chat */
+.st-key-chat-fab {position: fixed; right: 28px; bottom: 26px; z-index: 999990; width: auto !important;}
+.st-key-chat-fab [data-testid="stPopoverButton"] {width: 58px; height: 58px; border-radius: 50%; padding: 0;
+    background: linear-gradient(145deg, #3b8beb, #2563c9); border: 1px solid rgba(255,255,255,.25);
+    box-shadow: 0 8px 24px rgba(0,0,0,.45); font-size: 1.5rem; color: #fff; transition: transform .2s ease, box-shadow .2s ease;}
+.st-key-chat-fab [data-testid="stPopoverButton"]:hover {transform: translateY(-2px) scale(1.05);
+    box-shadow: 0 10px 30px rgba(59,139,235,.45); color: #fff; border-color: rgba(255,255,255,.4);}
+.st-key-chat-fab [data-testid="stPopoverButton"] p {font-size: 1.7rem; line-height: 1;}
+.st-key-chat-fab [data-testid="stPopoverButton"] [data-testid="stIconMaterial"] {display: none;}  /* no chevron */
+[data-testid="stPopoverBody"]:has(.st-key-chat-panel) {width: min(460px, calc(100vw - 32px)); max-width: none;
+    background: #0f1d36; border: 1px solid rgba(140,170,220,.22); border-radius: 18px;}
 </style>""", unsafe_allow_html=True)
 
 # Line icons for the KPI chips and card items (white outline, like a building-management console)
@@ -372,6 +383,35 @@ PRIORITY_COLUMNS = {
                                                    "least half of the flagged time."),
     "triage_score": st.column_config.NumberColumn("Triage score", format="%.0f", help=TRIAGE_HELP),
 }
+
+
+def prepare_sim(detail_frame, slope, on_kw, start_h, stop_h, weekend_on, holidays_off):
+    """15-minute rows for the what-if simulator (used by the simulator tab and the chat's what-if tool)."""
+    sim = detail_frame.loc[detail_frame["eligible"] & detail_frame["actual_kW"].notna(),
+                           ["Date", "unit", "actual_kW", "indoor_temp_C"]].copy()
+    hour = sim["Date"].dt.hour + sim["Date"].dt.minute / 60
+    weekend = sim["Date"].dt.dayofweek >= 5
+    in_window = hour.ge(start_h) & hour.lt(stop_h)
+    sim["outside_window"] = ((~in_window & ~weekend) | (weekend & (not weekend_on))
+                             | (holidays_off & sim["Date"].dt.normalize().isin(CLOSED_DATES)))
+    sim["running"] = sim["actual_kW"].gt(on_kw)
+    sim["slope"] = sim["unit"].map(slope).fillna(0)
+    # Each zone's current "effective setpoint" = median indoor temperature while its unit runs
+    current_sp = sim.loc[sim["running"]].groupby("unit")["indoor_temp_C"].median()
+    sim["current_sp"] = sim["unit"].map(current_sp)
+    return sim
+
+
+def simulate_setpoint(sim, sp, band):
+    """kWh saved by the new setpoint, kWh saved by the schedule window, and % of running time in the comfort band."""
+    avoided = sim["running"] & sim["outside_window"]
+    active = sim["running"] & ~avoided & sim["indoor_temp_C"].notna()
+    shift = (sp - sim["current_sp"]).where(active, 0)
+    setpoint_kwh = np.minimum(sim["slope"] * shift, sim["actual_kW"]).sum() * INTERVAL_HOURS
+    schedule_kwh = sim.loc[avoided, "actual_kW"].sum() * INTERVAL_HOURS
+    new_temp = sim.loc[active, "indoor_temp_C"] + shift.loc[active]
+    comfort = 100 * new_temp.between(*band).mean() if len(new_temp) else np.nan
+    return setpoint_kwh, schedule_kwh, comfort
 
 
 @st.cache_data(show_spinner=False)
@@ -1607,3 +1647,519 @@ with tab_twin:
                f"lighting is above {twin.LIGHT_ON_KW} kW while every AC unit on that floor is normally off (stairwells excluded). "
                f"The priority-level colours use the review period ({PERIOD}). "
                "Floors 1, 2 and 6 are shown for context but are not in this analysis.")
+
+
+# ================================================================ ask the data (chat)
+# Read-only tools Gemini can call to answer FM questions. Their names, arguments and docstrings form the tool schema,
+# so keep them stable: changing them mid-conversation would invalidate the conversation's history.
+import functools
+import json
+
+import fm_chat
+
+DATA_FIRST, DATA_LAST = pd.Timestamp(data_first), pd.Timestamp(data_last)
+
+
+def _json(obj):
+    return json.dumps(obj, default=lambda o: None if pd.isna(o) else str(o), ensure_ascii=False)
+
+
+def _r(value, digits=1):
+    return None if value is None or pd.isna(value) else round(float(value), digits)
+
+
+def _scope_arg(floor_arg):
+    """'' = the dashboard's current view; 'all'/'building' = whole building; '7' / 'Floor 7' = that floor."""
+    text = str(floor_arg or "").strip().lower()
+    if not text:
+        return floor
+    if text in ("all", "building", "whole building"):
+        return ALL
+    digits = re.findall(r"\d+", text)
+    if digits and int(digits[0]) in FLOORS:
+        return int(digits[0])
+    raise ValueError(f"Unknown floor '{floor_arg}'. Use one of {FLOORS} or 'all'.")
+
+
+def _dates(start_date, end_date):
+    """Inclusive YYYY-MM-DD dates → (start, exclusive end), defaulting to the dashboard's timeframe."""
+    start = pd.Timestamp(start_date) if start_date else period_start
+    end = pd.Timestamp(end_date) + pd.Timedelta(days=1) if end_date else period_end
+    start, end = max(start.normalize(), DATA_FIRST), min(end.normalize(), DATA_LAST + pd.Timedelta(days=1))
+    if end <= start:
+        raise ValueError(f"No data in that range. Data covers {data_first} to {data_last}.")
+    return start, end
+
+
+def _scope_name(fl):
+    return "Whole building (Floors " + ", ".join(map(str, FLOORS)) + ")" if fl == ALL else f"Floor {fl}"
+
+
+def _period_text(start, end):
+    return f"{start:%a %d %b %Y} to {end - pd.Timedelta(days=1):%a %d %b %Y} ({(end - start).days} days)"
+
+
+def _scope_results(fl, start, end):
+    """Flags, events, unit ranking and KPIs for a scope and date range (same rules as the dashboard)."""
+    d_ = flags_for(fl, k_iqr, k_res, on_kw, persist, use_stat, use_after, use_persist, OPEN, EXCEPTIONS)
+    d_ = d_.loc[d_["Date"].ge(start) & d_["Date"].lt(end)]
+    ev = build_events(d_, TARIFF_THB, track_record=TRACK)
+    pr = unit_priority(d_, ev, (end - start).days)
+    return d_, ev, pr, period_kpis(fl, start, end, OPEN)
+
+
+def _all_units():
+    return sorted({u for f in FLOORS for u in load(f)["detail"]["unit"].unique()})
+
+
+def _find_unit(name):
+    """Match 'F7 Z1 AC4', 'Floor 7 Zone 1 AC4' or 'F7_z1_AC4(kW)' to a unit id."""
+    nums = re.findall(r"\d+", str(name))
+    for u in _all_units():
+        m = re.search(r"F(\d+)_z(\d+)_AC(\d+)", u)
+        if m and nums[:3] == [m[1], m[2], m[3]]:
+            return u
+    raise ValueError(f"Unknown AC unit '{name}'. Units: " + ", ".join(unit_label(u, with_floor=True) for u in _all_units()))
+
+
+def _event_rows(ev, limit):
+    return [{"unit": unit_label(e["unit"], with_floor=True), "start": f"{e['start']:%a %d %b %Y %H:%M}",
+             "hours": _r(e["duration_h"], 2), "peak_kW": _r(e["peak_kW"]), "excess_kWh": _r(e["excess_kWh"]),
+             "excess_THB": _r(e["excess_THB"], 0), "confidence": _r(e["confidence"], 0),
+             "pattern": PATTERNS[e["pattern"]][2], "effort": e["effort"], "triage_score": _r(e["triage_score"], 0),
+             "priority": e["priority_level"].split()[-1], "why": e["reason"]}
+            for _, e in ev.head(limit).iterrows()]
+
+
+def _forecast_for(fl):
+    """(hourly forecast table, chosen model) for a scope, with public holidays forecast as zero."""
+    table = load(fl)["forecast"].copy()
+    model = load(fl).get("selected_model") or load(fl)["validation_metrics"]["MAE_kW"].idxmin()
+    cols = [c for c in table.columns if c != "floor_kW"]
+    if use_holidays:
+        table.loc[table.index.normalize().isin(CLOSED_DATES), cols] = 0.0
+    return table, model
+
+
+def _tool(fn):
+    """Run a tool body, turning bad arguments into a short error the model can read and correct."""
+    @functools.wraps(fn)  # keeps the name, docstring, signature and type hints the tool schema is built from
+    def wrapped(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except ValueError as error:
+            return _json({"error": str(error)})
+    return wrapped
+
+
+@_tool
+def dashboard_overview(floor: str = "", start_date: str = "", end_date: str = "") -> str:
+    """Headline numbers for a scope and period: AC energy, energy used while the building was closed, 15-minute peak,
+    flagged events, excess kWh, the top 3 units to review, opening hours and holidays in the period.
+
+    Args:
+        floor: '' for the dashboard's current view, 'all' for the whole building, or a floor number such as '7'.
+        start_date: First day, YYYY-MM-DD. Empty = the dashboard's timeframe.
+        end_date: Last day (inclusive), YYYY-MM-DD. Empty = the dashboard's timeframe.
+    """
+    fl = _scope_arg(floor)
+    start, end = _dates(start_date, end_date)
+    d_, ev, pr, k = _scope_results(fl, start, end)
+    closures = [f"{d:%a %d %b}: {closure_name(d.date())}" for d in CLOSED_DATES if start <= d < end]
+    return _json({"scope": _scope_name(fl), "period": _period_text(start, end),
+                  "ac_energy_kWh": _r(k["energy_kWh"], 0), "used_while_closed_kWh": _r(k["after_kWh"], 0),
+                  "used_while_closed_pct": _r(k["after_pct"]), "peak_15min_kW": _r(k["peak_kW"]),
+                  "ac_cost_THB": _r(k["energy_kWh"] * TARIFF_THB, 0), "tariff_THB_per_kWh": TARIFF_THB,
+                  "flagged_events": len(ev), "excess_kWh_flagged": _r(ev["excess_kWh"].sum() if len(ev) else 0, 0),
+                  "top_units": [{"unit": unit_label(u, with_floor=True), "priority": r["priority_level"].split()[-1],
+                                 "triage_score": _r(r["triage_score"], 0), "excess_THB": _r(r["excess_THB"], 0),
+                                 "confidence": _r(r["confidence"], 0), "share_of_score_pct": _r(r["share_pct"], 0)}
+                                for u, r in pr.head(3).iterrows()],
+                  "opening_hours": OPEN_TEXT, "closures_in_period": closures})
+
+
+@_tool
+def rank_units(floor: str = "", start_date: str = "", end_date: str = "", limit: int = 10) -> str:
+    """AC units ranked by triage score = excess THB x confidence / effort (most worth checking first), with priority
+    level, excess kWh and THB, confidence (0-100), fix effort, main pattern, events and the share of time flagged.
+
+    Args:
+        floor: '' for the dashboard's current view, 'all' for the whole building, or a floor number such as '7'.
+        start_date: First day, YYYY-MM-DD. Empty = the dashboard's timeframe.
+        end_date: Last day (inclusive), YYYY-MM-DD. Empty = the dashboard's timeframe.
+        limit: How many units to return (1-16).
+    """
+    fl = _scope_arg(floor)
+    start, end = _dates(start_date, end_date)
+    _, _, pr, _ = _scope_results(fl, start, end)
+    rows = [{"rank": int(r["rank"]), "unit": unit_label(u, with_floor=True), "priority": r["priority_level"].split()[-1],
+             "triage_score": _r(r["triage_score"], 0), "excess_kWh": _r(r["flagged_excess_kWh"], 0),
+             "excess_THB": _r(r["excess_THB"], 0), "per_day_THB": _r(r["per_day_THB"], 0),
+             "confidence": _r(r["confidence"], 0), "effort": r["effort"],
+             "main_pattern": PATTERNS[r["pattern"]][2] if isinstance(r["pattern"], str) else None,
+             "share_of_score_pct": _r(r["share_pct"], 0), "events": int(r["events"]),
+             "time_flagged_pct": _r(r["flagged_pct"])} for u, r in pr.head(max(1, min(int(limit), 16))).iterrows()]
+    return _json({"scope": _scope_name(fl), "period": _period_text(start, end), "units": rows})
+
+
+@_tool
+def list_events(floor: str = "", start_date: str = "", end_date: str = "", unit: str = "", limit: int = 10,
+                order: str = "priority") -> str:
+    """Flagged episodes (consecutive flagged 15-minute readings): unit, start, hours, peak kW, excess kWh and THB,
+    confidence, pattern, fix effort, triage score and why it was flagged.
+
+    Args:
+        floor: '' for the dashboard's current view, 'all' for the whole building, or a floor number such as '7'.
+        start_date: First day, YYYY-MM-DD. Empty = the dashboard's timeframe.
+        end_date: Last day (inclusive), YYYY-MM-DD. Empty = the dashboard's timeframe.
+        unit: Optional single unit, e.g. 'F7 Z1 AC4'. Empty = all units in scope.
+        limit: How many events to return (1-30).
+        order: 'priority' (highest triage score first) or 'time' (earliest first).
+    """
+    fl = _scope_arg(floor)
+    if unit:
+        u_id = _find_unit(unit)
+        fl = int(re.search(r"F(\d+)_", u_id)[1])
+    start, end = _dates(start_date, end_date)
+    _, ev, _, _ = _scope_results(fl, start, end)
+    if len(ev) and unit:
+        ev = ev.loc[ev["unit"].eq(u_id)]
+    if len(ev) and order == "time":
+        ev = ev.sort_values("start")
+    return _json({"scope": unit_label(u_id, with_floor=True) if unit else _scope_name(fl),
+                  "period": _period_text(start, end), "events_total": len(ev),
+                  "events": _event_rows(ev, max(1, min(int(limit), 30))) if len(ev) else []})
+
+
+@_tool
+def unit_profile(unit: str, start_date: str = "", end_date: str = "") -> str:
+    """Everything about one AC unit in a period: energy, running hours, energy while the building was closed, flags and
+    top events, priority on its floor, indoor temperature and comfort, comparison with the same unit on other floors,
+    temperature sensitivity, and its daily (or weekly) energy.
+
+    Args:
+        unit: The unit, e.g. 'F7 Z1 AC4' or 'Floor 7 Zone 1 AC4'.
+        start_date: First day, YYYY-MM-DD. Empty = the dashboard's timeframe.
+        end_date: Last day (inclusive), YYYY-MM-DD. Empty = the dashboard's timeframe.
+    """
+    u_id = _find_unit(unit)
+    fl = int(re.search(r"F(\d+)_", u_id)[1])
+    start, end = _dates(start_date, end_date)
+    d_, ev, pr, _ = _scope_results(fl, start, end)
+    part = d_.loc[d_["unit"].eq(u_id) & d_["eligible"]]
+    running = part["actual_kW"].gt(on_kw)
+    energy = part.set_index("Date")["actual_kW"] * INTERVAL_HOURS
+    series = energy.resample("D" if (end - start).days <= 31 else "W-MON", label="left", closed="left").sum()
+    sens_ = load(fl)["sensitivity"]
+    position = position_of(u_id)
+    peers = {f: load(f)["detail"] for f in FLOORS}
+    peer_means = {f: (p.loc[p["unit"].str.contains(f"_{position}") & p["eligible"] & p["Date"].ge(start) & p["Date"].lt(end),
+                            "actual_kW"].mean()) for f, p in peers.items()}
+    others = [v for f, v in peer_means.items() if f != fl and pd.notna(v)]
+    peer_med = float(np.median(others)) if others else np.nan
+    u_ev = ev.loc[ev["unit"].eq(u_id)] if len(ev) else ev
+    row = pr.loc[u_id] if u_id in pr.index else None
+    return _json({
+        "unit": unit_label(u_id, with_floor=True), "period": _period_text(start, end),
+        "ac_energy_kWh": _r(energy.sum(), 0), "running_hours": _r(running.sum() * INTERVAL_HOURS, 0),
+        "used_while_closed_kWh": _r(part.loc[part["closed"] & running, "actual_kW"].sum() * INTERVAL_HOURS, 0),
+        "time_flagged_pct": _r(100 * part["flagged"].mean()) if len(part) else None, "events": len(u_ev),
+        "excess_kWh": _r(u_ev["excess_kWh"].sum() if len(u_ev) else 0, 0),
+        "priority_on_its_floor": None if row is None else f"{row['priority_level'].split()[-1]} (rank {int(row['rank'])} of {len(pr)})",
+        "top_events": _event_rows(u_ev, 3) if len(u_ev) else [],
+        "median_indoor_C_while_running": _r(part.loc[running, "indoor_temp_C"].median()),
+        "pct_running_time_in_23_26C": _r(100 * part.loc[running, "indoor_temp_C"].between(23, 26).mean()) if running.any() else None,
+        "mean_kW_vs_same_unit_other_floors_pct": _r(100 * (peer_means[fl] / peer_med - 1), 0)
+        if pd.notna(peer_med) and peer_med >= on_kw else None,
+        "kW_per_degC_outdoor": _r(sens_["kW_per_degC_outdoor"].get(u_id), 2),
+        "pct_per_degC": _r(sens_["pct_per_degC"].get(u_id)),
+        ("daily_kWh" if (end - start).days <= 31 else "weekly_kWh"): {f"{t:%Y-%m-%d}": _r(v, 0) for t, v in series.items()},
+    })
+
+
+@_tool
+def waste_timing(floor: str = "", start_date: str = "", end_date: str = "") -> str:
+    """When the extra energy happens: share of flagged excess kWh on weekday working hours, other weekday hours,
+    Saturdays, Sundays and public holidays, plus the weekday/hour slots flagged most often.
+
+    Args:
+        floor: '' for the dashboard's current view, 'all' for the whole building, or a floor number such as '7'.
+        start_date: First day, YYYY-MM-DD. Empty = the dashboard's timeframe.
+        end_date: Last day (inclusive), YYYY-MM-DD. Empty = the dashboard's timeframe.
+    """
+    fl = _scope_arg(floor)
+    start, end = _dates(start_date, end_date)
+    d_, _, _, _ = _scope_results(fl, start, end)
+    fr = d_.loc[d_["flagged"]]
+    dow, hour = fr["Date"].dt.dayofweek, fr["Date"].dt.hour
+    cat = np.select([fr["holiday"], dow.eq(5), dow.eq(6), hour.between(8, 16)],
+                    ["Public holiday", "Saturday", "Sunday", "Weekday 08:00–17:00"], "Weekday, other hours")
+    kwh = fr.groupby(cat)["excess_kWh_est"].sum().reindex(WHEN_ORDER, fill_value=0)
+    valid = d_.loc[d_["eligible"]]
+    slots = (100 * valid.groupby([valid["Date"].dt.dayofweek, valid["Date"].dt.hour])["flagged"].mean()).nlargest(5)
+    return _json({"scope": _scope_name(fl), "period": _period_text(start, end),
+                  "excess_share_pct": {k: _r(100 * v / max(1e-9, kwh.sum()), 0) for k, v in kwh.items()},
+                  "excess_kWh": {k: _r(v, 0) for k, v in kwh.items()},
+                  "most_flagged_slots": [{"slot": f"{DAYS[dw]} {h:02d}:00", "pct_of_readings_flagged": _r(v)}
+                                         for (dw, h), v in slots.items()]})
+
+
+@_tool
+def compare_floors(start_date: str = "", end_date: str = "") -> str:
+    """Compare Floors 3, 4, 5 and 7 (same AC layout): energy, energy while closed, peak, events, excess THB, triage
+    score and median indoor temperature per floor, plus the units that draw most above the same unit on other floors.
+
+    Args:
+        start_date: First day, YYYY-MM-DD. Empty = the dashboard's timeframe.
+        end_date: Last day (inclusive), YYYY-MM-DD. Empty = the dashboard's timeframe.
+    """
+    start, end = _dates(start_date, end_date)
+    rows, means = [], {}
+    for f in FLOORS:
+        d_, ev, pr, k = _scope_results(f, start, end)
+        rows.append({"floor": f"Floor {f}", "ac_energy_kWh": _r(k["energy_kWh"], 0),
+                     "used_while_closed_pct": _r(k["after_pct"]), "peak_15min_kW": _r(k["peak_kW"]),
+                     "flagged_events": len(ev), "excess_THB": _r(pr["excess_THB"].sum(), 0),
+                     "triage_score": _r(pr["triage_score"].sum(), 0),
+                     "median_indoor_C_running": _r(d_.loc[d_["eligible"] & d_["actual_kW"].gt(on_kw), "indoor_temp_C"].median())})
+        for u, part in d_.loc[d_["eligible"]].groupby("unit"):
+            means[u] = part["actual_kW"].mean()
+    gaps = []
+    for u, m in means.items():
+        others = [v for o, v in means.items() if position_of(o) == position_of(u) and o != u]
+        med = np.nanmedian(others) if others else np.nan
+        if pd.notna(med) and med >= on_kw:
+            gaps.append((u, 100 * (m / med - 1)))
+    gaps.sort(key=lambda x: -x[1])
+    return _json({"period": _period_text(start, end), "floors": rows,
+                  "units_most_above_peers": [{"unit": unit_label(u, with_floor=True), "vs_peers_pct": _r(g, 0)}
+                                             for u, g in gaps[:5]]})
+
+
+@_tool
+def energy_timeseries(floor: str = "", start_date: str = "", end_date: str = "", resolution: str = "day") -> str:
+    """Measured AC energy over time for a scope: totals per hour (periods up to 7 days), day or week.
+
+    Args:
+        floor: '' for the dashboard's current view, 'all' for the whole building, or a floor number such as '7'.
+        start_date: First day, YYYY-MM-DD. Empty = the dashboard's timeframe.
+        end_date: Last day (inclusive), YYYY-MM-DD. Empty = the dashboard's timeframe.
+        resolution: 'hour', 'day' or 'week'.
+    """
+    fl = _scope_arg(floor)
+    start, end = _dates(start_date, end_date)
+    hourly = load(fl)["forecast"]["floor_kW"]
+    hourly = hourly.loc[(hourly.index >= start) & (hourly.index < end)]
+    if resolution == "hour" and (end - start).days <= 7:
+        values = {f"{t:%a %d %b %H:00}": _r(v, 0) for t, v in hourly.items()}
+    else:
+        resolution = "week" if resolution == "week" or (end - start).days > 92 else "day"
+        series = hourly.resample("D" if resolution == "day" else "W-MON", label="left", closed="left").sum(min_count=1)
+        values = {f"{t:%a %d %b %Y}": _r(v, 0) for t, v in series.items()}
+    return _json({"scope": _scope_name(fl), "period": _period_text(start, end), "unit": "kWh",
+                  "resolution": resolution, "values": values,
+                  "note": "Hours with a meter gap on any unit are left out of the totals."})
+
+
+@_tool
+def day_forecast(date: str, floor: str = "") -> str:
+    """The day-ahead hourly AC demand forecast for one day (made with data up to the midnight before), with the actual
+    load when the day is in the data: peak, daily energy and that day's error. Covers 2019-07-01 to 2020-01-01.
+
+    Args:
+        date: The day, YYYY-MM-DD.
+        floor: '' for the dashboard's current view, 'all' for the whole building, or a floor number such as '7'.
+    """
+    fl = _scope_arg(floor)
+    day = pd.Timestamp(date).normalize()
+    table, model = _forecast_for(fl)
+    hours = pd.date_range(day, periods=24, freq="h")
+    part = table.reindex(hours)
+    if part[model].notna().any():
+        pred, actual = part[model].fillna(0.0), part["floor_kW"]
+    elif day == pd.Timestamp(load(fl)["next24"].index[0]).normalize():
+        pred, actual = load(fl)["next24"]["predicted_kW"].copy(), pd.Series(np.nan, index=hours)
+        if use_holidays and closure_name(day.date()):
+            pred[:] = 0.0
+    else:
+        raise ValueError("Forecasts exist for 2019-07-01 to 2020-01-01 only.")
+    has_actual = actual.notna().any()
+    return _json({"scope": _scope_name(fl), "date": f"{day:%a %d %b %Y}", "method": MODEL_LABELS.get(model, model),
+                  "public_holiday": closure_name(day.date()) if use_holidays else None,
+                  "forecast_peak_kW": _r(pred.max()), "forecast_peak_hour": f"{pred.idxmax():%H:00}",
+                  "forecast_daily_kWh": _r(pred.sum(), 0),
+                  "actual_peak_kW": _r(actual.max()) if has_actual else None,
+                  "actual_daily_kWh": _r(actual.sum(), 0) if has_actual else None,
+                  "mean_abs_error_kW_this_day": _r((pred - actual).abs().mean()) if has_actual else None,
+                  "hourly_kW": {f"{t:%H:00}": {"forecast": _r(p), "actual": _r(a) if has_actual else None}
+                                for t, p, a in zip(hours, pred.values, actual.reindex(hours).values)}})
+
+
+@_tool
+def forecast_accuracy(floor: str = "") -> str:
+    """How accurate each forecasting method was on Jul–Dec 2019 (data the methods never saw), with public holidays
+    forecast as zero: average error, peak-hour error, bias, and which method the dashboard uses.
+
+    Args:
+        floor: '' for the dashboard's current view, 'all' for the whole building, or a floor number such as '7'.
+    """
+    fl = _scope_arg(floor)
+    table, model = _forecast_for(fl)
+    cols = [c for c in table.columns if c != "floor_kW"]
+    m = forecast_metrics(table, cols)
+    return _json({"scope": _scope_name(fl), "method_used": MODEL_LABELS.get(model, model),
+                  "methods": [{"method": MODEL_LABELS.get(i, i), "mean_abs_error_kW": _r(r["MAE_kW"], 2),
+                               "peak_hour_error_kW": _r(r["peak_hour_MAE_kW"], 2), "bias_pct": _r(r["NMBE_pct"]),
+                               "cv_rmse_pct": _r(r["CV_RMSE_pct"])} for i, r in m.iterrows()],
+                  "hours_scored": int(m["hours"].iloc[0]) if len(m) else 0})
+
+
+@_tool
+def holidays_and_hours(start_date: str = "", end_date: str = "") -> str:
+    """The building's opening hours as set in the dashboard, and the Thai public holidays and closure days in a period.
+
+    Args:
+        start_date: First day, YYYY-MM-DD. Empty = the dashboard's timeframe.
+        end_date: Last day (inclusive), YYYY-MM-DD. Empty = the dashboard's timeframe.
+    """
+    start = pd.Timestamp(start_date) if start_date else period_start
+    end = pd.Timestamp(end_date) + pd.Timedelta(days=1) if end_date else period_end
+    return _json({"opening_hours": OPEN_TEXT, "holidays_used_as_closures": use_holidays,
+                  "closures": [{"date": f"{d:%a %d %b %Y}", "name": closure_name(d.date())}
+                               for d in CLOSED_DATES if start <= d < end]})
+
+
+@_tool
+def smart_assistant_findings() -> str:
+    """The dashboard's rule-based checks for its current view and timeframe: units off during usual hours, units
+    running while their zone stays warm, several units on one floor high or off together, waste outside usual hours,
+    peer outliers, overcooling, missing data and the next day's forecast, each with a suggested action."""
+    return _json({"scope": scope_desc, "period": PERIOD,
+                  "findings": [{"severity": x["severity"], "finding": x["title"], "action": x["action"],
+                                "detail": x["detail"], "where_in_dashboard": x["where"]} for x in assistant_findings()]})
+
+
+@_tool
+def what_if(setpoint_c: float = 0, weekday_start_hour: float = 0, weekday_end_hour: float = 24,
+            keep_weekends: bool = True, ac_off_on_public_holidays: bool = False, floor: str = "",
+            start_date: str = "", end_date: str = "") -> str:
+    """Estimate the energy and cost saved by a setpoint change and/or a stricter AC schedule, and the effect on comfort
+    (share of running time inside 23–26 °C). Same model as the dashboard's simulator; screening estimates only.
+
+    Args:
+        setpoint_c: New indoor setpoint in °C (e.g. 25). 0 = keep today's setpoints.
+        weekday_start_hour: Hour the AC may start on weekdays (0-24, e.g. 7.5). 0 with end 24 = no change.
+        weekday_end_hour: Hour the AC must stop on weekdays (0-24, e.g. 18).
+        keep_weekends: False = proposal of no AC at weekends.
+        ac_off_on_public_holidays: True = proposal of no AC on public holidays and closure days.
+        floor: '' for the dashboard's current view, 'all' for the whole building, or a floor number such as '7'.
+        start_date: First day, YYYY-MM-DD. Empty = the dashboard's timeframe.
+        end_date: Last day (inclusive), YYYY-MM-DD. Empty = the dashboard's timeframe.
+    """
+    fl = _scope_arg(floor)
+    start, end = _dates(start_date, end_date)
+    det = load(fl)["detail"]
+    det = det.loc[det["Date"].ge(start) & det["Date"].lt(end)]
+    slope_ = load(fl)["sensitivity"]["kW_per_degC_outdoor"].clip(lower=0)
+    sim = prepare_sim(det, slope_, on_kw, float(weekday_start_hour), float(weekday_end_hour), bool(keep_weekends),
+                      bool(ac_off_on_public_holidays))
+    if sim.empty:
+        raise ValueError("No AC readings in that period.")
+    band_ = (23.0, 26.0)
+    running_now = sim["running"] & sim["indoor_temp_C"].notna()
+    comfort_now = 100 * sim.loc[running_now, "indoor_temp_C"].between(*band_).mean()
+    if setpoint_c and setpoint_c > 0:
+        sp_kwh, sch_kwh, comfort_new = simulate_setpoint(sim, float(setpoint_c), band_)
+    else:  # schedule change only: setpoints and comfort stay as they are
+        sp_kwh, sch_kwh, comfort_new = 0.0, simulate_setpoint(sim, 0.0, band_)[1], comfort_now
+    total = sim["actual_kW"].sum() * INTERVAL_HOURS
+    saved = sp_kwh + sch_kwh
+    current_sp = sim.loc[sim["running"]].groupby("unit")["indoor_temp_C"].median()
+    return _json({"scope": _scope_name(fl), "period": _period_text(start, end),
+                  "saved_kWh": _r(saved, 0), "saved_pct_of_ac_energy": _r(100 * saved / total if total else np.nan),
+                  "saved_THB": _r(saved * TARIFF_THB, 0), "tariff_THB_per_kWh": TARIFF_THB,
+                  "from_setpoint_kWh": _r(sp_kwh, 0), "from_schedule_kWh": _r(sch_kwh, 0),
+                  "comfort_pct_now": _r(comfort_now, 0), "comfort_pct_after": _r(comfort_new, 0),
+                  "current_effective_setpoint_C_by_unit": {unit_label(u, with_floor=True): _r(v)
+                                                           for u, v in current_sp.items()},
+                  "assumptions": "kW saved per °C = each unit's outdoor-temperature slope from the baseline year; "
+                                 "schedule savings count all AC energy outside the window as avoidable."})
+
+
+CHAT_TOOLS = [dashboard_overview, rank_units, list_events, unit_profile, waste_timing, compare_floors,
+              energy_timeseries, day_forecast, forecast_accuracy, holidays_and_hours, smart_assistant_findings, what_if]
+TOOL_LABELS = {"dashboard_overview": "overview", "rank_units": "unit ranking", "list_events": "events",
+               "unit_profile": "unit profile", "waste_timing": "when waste happens", "compare_floors": "floor comparison",
+               "energy_timeseries": "energy over time", "day_forecast": "forecast", "forecast_accuracy": "forecast accuracy",
+               "holidays_and_hours": "holidays & hours", "smart_assistant_findings": "smart assistant", "what_if": "what-if"}
+SUGGESTIONS = ["Which AC units should we check first, and why?",
+               "What happened on Floor 7 on Saturday 27 July 2019?",
+               "What load should we plan for on Monday 21 October 2019, and how good was the forecast?",
+               "How much would raising the setpoint to 25 °C save, and is it still comfortable?",
+               "Which floor wastes the most energy while the building is closed?"]
+
+# Floating "Ask the data" button (bottom-right corner, on every tab). Keyed, so it stays open across reruns.
+with st.container(key="chat-fab"):
+    chat_box = st.popover("✦", key="chat_open")
+with chat_box, st.container(key="chat-panel"):
+    api_key = fm_chat.get_api_key(st.secrets) or st.session_state.get("gemini_key")
+    chat_model = fm_chat.get_model(st.secrets)
+    st.session_state.setdefault("chat_api", [])      # the API conversation (append-only)
+    st.session_state.setdefault("chat_display", [])  # what the panel shows
+    h1, h2 = st.columns([3, 1], vertical_alignment="center")
+    h1.markdown("**✦ Ask the data**",
+                help=f"Google Gemini ({chat_model}) answers by calling read-only tools over the same data and rules as the "
+                     "dashboard, so figures come from the analysis, not from memory. It uses the dashboard's current "
+                     "view (floor, timeframe, opening hours) unless you ask about something else. Questions and the "
+                     "data needed to answer them are sent to the Gemini API. On the free tier Google limits requests per "
+                     "minute and per day, and may use free-tier prompts to improve its products.")
+    if h2.button("Clear", type="tertiary", width="stretch", disabled=not st.session_state["chat_display"]):
+        st.session_state["chat_api"], st.session_state["chat_display"] = [], []
+        st.rerun()
+
+    if not api_key:
+        st.markdown("**Add a Gemini API key to start.** Create one free at "
+                    "[Google AI Studio](https://aistudio.google.com) (API keys). The best place for it is "
+                    "`.streamlit/secrets.toml` in the project folder, with the line\n\n`GEMINI_API_KEY = \"...\"`\n\n"
+                    "then restart the app (on Streamlit Cloud: App → Settings → Secrets). Or paste a key below "
+                    "for this browser session only.")
+        pasted = st.text_input("Gemini API key", type="password")
+        if pasted:
+            st.session_state["gemini_key"] = pasted.strip()
+            st.rerun()
+    else:
+        msgs = st.container(height=430, border=False)
+        with msgs:
+            for item in st.session_state["chat_display"]:
+                with st.chat_message(item["role"]):
+                    st.markdown(item["text"])
+                    if item.get("tools"):
+                        st.caption("Looked at: " + ", ".join(dict.fromkeys(TOOL_LABELS.get(t, t) for t in item["tools"])))
+            if not st.session_state["chat_display"]:
+                st.caption("Questions about AC energy, anomalies, comfort and forecasts, answered from the dashboard's "
+                           "own data. Try one:")
+                for text in SUGGESTIONS:
+                    if st.button(text, width="stretch"):
+                        st.session_state["chat_pending"] = text
+                        st.rerun()
+        question = st.chat_input("Ask about the data…") or st.session_state.pop("chat_pending", None)
+        if question:
+            st.session_state["chat_display"].append({"role": "user", "text": question})
+            # The current view travels with the question, so the system prompt never changes mid-conversation
+            view = (f"[Dashboard view: {scope_desc} · timeframe {PERIOD} ({period_start:%Y-%m-%d} to "
+                    f"{period_end - pd.Timedelta(days=1):%Y-%m-%d}) · opening hours {OPEN_TEXT}]")
+            with msgs:
+                with st.chat_message("user"):
+                    st.markdown(question)
+                with st.chat_message("assistant"):
+                    with st.spinner("Looking at the data…"):
+                        try:
+                            answer, new_turns, used = fm_chat.ask(api_key, chat_model, st.session_state["chat_api"],
+                                                                  f"{view}\n\n{question}", CHAT_TOOLS)
+                        except Exception as error:  # API errors are explained in plain words; anything else is shown as is
+                            answer, new_turns, used = "⚠️ " + fm_chat.error_message(error), [], []
+                    st.markdown(answer)
+                    if used:
+                        st.caption("Looked at: " + ", ".join(dict.fromkeys(TOOL_LABELS.get(t, t) for t in used)))
+            st.session_state["chat_api"] += new_turns
+            st.session_state["chat_display"].append({"role": "assistant", "text": answer, "tools": used})

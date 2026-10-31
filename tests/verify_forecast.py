@@ -53,7 +53,7 @@ def test_forecast_never_peeks_at_future_actuals():
 
 def test_weather_models_are_flagged_as_optimistic():
     """Weather models use observed weather, not a weather forecast. The dashboard states this in the Forecast tab."""
-    src = (OUT.parent / "dashboard" / "app.py").read_text()
+    src = (OUT.parent / "dashboard" / "app.py").read_text(encoding="utf-8")
     assert "observed Open-Meteo weather" in src and "optimistic" in src
 
 

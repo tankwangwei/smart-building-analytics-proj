@@ -4,6 +4,9 @@ combined_by_floor.csv
 # Large intermediate file the dashboard doesn't use
 ac_analysis_outputs/**/q1_15min_interval_quality.csv
 
+# Secrets (API keys): never commit. See .streamlit/secrets.toml.example
+.streamlit/secrets.toml
+
 # Local-only
 _backup/
 .ipynb_checkpoints/

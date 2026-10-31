@@ -8,3 +8,4 @@ rdflib>=6.0
 scipy
 gspread>=6.0
 google-auth
+google-genai>=2.33
