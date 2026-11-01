@@ -7,7 +7,7 @@
 
 **Timeframe** (top right, every tab): Day / Week / Month / Jul–Dec plus a date. Every total, colour, alert and finding is worked out for that timeframe. "Normal" is always learned from Jul 2018 – Jun 2019, and forecast accuracy is always scored on Jul–Dec 2019.
 
-**✦ Ask the data** (round button, bottom-right corner of every tab): a chat assistant for the facilities team, using Google Gemini (`gemini-3.8-flash` by default; set `GEMINI_MODEL` in secrets to change it). The code is in `dashboard/fm_chat.py`.
+**✦ Ask the data** (round button, bottom-right corner of every tab): a chat assistant for the facilities team, using Google Gemini (`gemini-3.5-flash` by default; set `GEMINI_MODEL` in secrets to change it). The code is in `dashboard/fm_chat.py`.
 - **How it answers:** it calls 12 read-only tools over the dashboard's own data and rules, so every figure comes from the analysis. The tools are: overview KPIs, unit ranking, events, unit profile, when waste happens, floor comparison, energy over time, day-ahead forecast, forecast accuracy, holidays and hours, the Smart assistant's findings, and a what-if setpoint/schedule estimate (the same maths as the simulator tab).
 - **Scope:** it uses the dashboard's current view (floor, timeframe, opening hours) unless the question names another.
 - **API key (free):** create one at [Google AI Studio](https://aistudio.google.com) → API keys. Copy `.streamlit/secrets.toml.example` to `.streamlit/secrets.toml` (git-ignored) and paste the key as `GEMINI_API_KEY`. You can also set the `GEMINI_API_KEY` environment variable, or paste a key in the chat panel for the current browser session only. On Streamlit Cloud, put it under App → Settings → Secrets. Never commit a key.

@@ -16,8 +16,9 @@ import re
 
 from google import genai
 
-DEFAULT_MODEL = "gemini-3.8-flash"
+DEFAULT_MODEL = "gemini-3.5-flash"
 MAX_TOOL_ROUNDS = 12
+REQUEST_TIMEOUT_SECONDS = 60  # per Gemini request, so an overloaded model shows an error instead of an endless spinner
 
 SYSTEM_PROMPT = """You are the facilities-management (FM) data assistant for Chamchuri 5, an administrative office \
 building at Chulalongkorn University, Bangkok. You answer questions from the FM team about air-conditioning (AC) energy, \
@@ -117,6 +118,7 @@ def ask(api_key, model, history, question, tools):
             tools=declarations,
             input=history + turn,
             store=False,  # stateless: we keep and resend the history ourselves
+            timeout=REQUEST_TIMEOUT_SECONDS,
         )
         calls = []
         for step in interaction.steps or []:
@@ -149,6 +151,9 @@ def error_message(error):
                 "fixes this.")
     if status and status >= 500:
         return f"The Gemini API had a server error ({status}). Try again shortly."
+    if "timeout" in type(error).__name__.lower():  # checked first: the SDK's timeout error is also a connection error
+        return ("The Gemini API took too long to answer, usually because the model is busy. Try again shortly, or set "
+                "GEMINI_MODEL in .streamlit/secrets.toml to another model.")
     if "connect" in type(error).__name__.lower() or "NoResponse" in type(error).__name__:
         return "Couldn't reach the Gemini API. Check the internet connection."
     return f"Something went wrong: {error}"
