@@ -9,6 +9,7 @@ API key, first found wins: Streamlit secrets (GEMINI_API_KEY in .streamlit/secre
 environment variable, or a key pasted into the app (kept in this browser session only, never written to disk).
 Create a key at https://aistudio.google.com (API keys). GEMINI_MODEL in secrets overrides the model.
 """
+import functools
 import inspect
 import json
 import os
@@ -16,9 +17,9 @@ import re
 
 from google import genai
 
-DEFAULT_MODEL = "gemini-3.5-flash"
+DEFAULT_MODEL = "gemini-3.5-flash-lite"  # 3-5 s per question in testing; gemini-3.8-flash took minutes or timed out
 MAX_TOOL_ROUNDS = 12
-REQUEST_TIMEOUT_SECONDS = 60  # per Gemini request, so an overloaded model shows an error instead of an endless spinner
+REQUEST_TIMEOUT_MS = 45_000  # per Gemini request, so a slow model gives an error instead of spinning for minutes
 
 SYSTEM_PROMPT = """You are the facilities-management (FM) data assistant for Chamchuri 5, an administrative office \
 building at Chulalongkorn University, Bangkok. You answer questions from the FM team about air-conditioning (AC) energy, \
@@ -100,13 +101,19 @@ def _run_tool(tools_by_name, name, arguments):
         return json.dumps({"error": f"Bad arguments for {name}: {error}"})
 
 
+@functools.lru_cache(maxsize=4)
+def _client(api_key):
+    """One client per key: creating one takes about 2 s."""
+    return genai.Client(api_key=api_key, http_options={"timeout": REQUEST_TIMEOUT_MS})
+
+
 def ask(api_key, model, history, question, tools):
     """Run one question through Gemini with the dashboard tools.
 
     history: the conversation so far, as interaction steps (replayed unchanged). Returns
     (answer_text, new_history_entries, tools_used). Raises the SDK's errors for the caller to show.
     """
-    client = genai.Client(api_key=api_key)
+    client = _client(api_key)
     tools_by_name = {fn.__name__: fn for fn in tools}
     declarations = [function_declaration(fn) for fn in tools]
     turn = [{"type": "user_input", "content": [{"type": "text", "text": question}]}]
@@ -139,6 +146,8 @@ def ask(api_key, model, history, question, tools):
 def error_message(error):
     """A plain-language message for an API error."""
     status = getattr(error, "status_code", None) or getattr(error, "code", None)
+    if "timeout" in type(error).__name__.lower():
+        return "Gemini took too long to answer. Try again, or set GEMINI_MODEL to a faster model."
     if status in (401, 403):
         return "The Gemini API key was rejected. Check that it is correct and enabled in Google AI Studio."
     if status == 429:

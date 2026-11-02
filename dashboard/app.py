@@ -2101,7 +2101,9 @@ SUGGESTIONS = ["Which AC units should we check first, and why?",
 # Floating "Ask the data" button (bottom-right corner, on every tab). Keyed, so it stays open across reruns.
 with st.container(key="chat-fab"):
     chat_box = st.popover("✦", key="chat_open")
-with chat_box, st.container(key="chat-panel"):
+# A fragment, so sending a question reruns only this panel, not the whole dashboard.
+@st.fragment
+def chat_panel():
     api_key = fm_chat.get_api_key(st.secrets) or st.session_state.get("gemini_key")
     chat_model = fm_chat.get_model(st.secrets)
     st.session_state.setdefault("chat_api", [])      # the API conversation (append-only)
@@ -2115,7 +2117,7 @@ with chat_box, st.container(key="chat-panel"):
                      "minute and per day, and may use free-tier prompts to improve its products.")
     if h2.button("Clear", type="tertiary", width="stretch", disabled=not st.session_state["chat_display"]):
         st.session_state["chat_api"], st.session_state["chat_display"] = [], []
-        st.rerun()
+        st.rerun(scope="fragment")
 
     if not api_key:
         st.markdown("**Add a Gemini API key to start.** Create one free at "
@@ -2126,9 +2128,12 @@ with chat_box, st.container(key="chat-panel"):
         pasted = st.text_input("Gemini API key", type="password")
         if pasted:
             st.session_state["gemini_key"] = pasted.strip()
-            st.rerun()
+            st.rerun(scope="fragment")
     else:
         msgs = st.container(height=430, border=False)
+        question = st.chat_input("Ask about the data…") or st.session_state.pop("chat_pending", None)
+        if question:
+            st.session_state["chat_display"].append({"role": "user", "text": question})
         with msgs:
             for item in st.session_state["chat_display"]:
                 with st.chat_message(item["role"]):
@@ -2141,25 +2146,24 @@ with chat_box, st.container(key="chat-panel"):
                 for text in SUGGESTIONS:
                     if st.button(text, width="stretch"):
                         st.session_state["chat_pending"] = text
-                        st.rerun()
-        question = st.chat_input("Ask about the data…") or st.session_state.pop("chat_pending", None)
+                        st.rerun(scope="fragment")
         if question:
-            st.session_state["chat_display"].append({"role": "user", "text": question})
             # The current view travels with the question, so the system prompt never changes mid-conversation
             view = (f"[Dashboard view: {scope_desc} · timeframe {PERIOD} ({period_start:%Y-%m-%d} to "
                     f"{period_end - pd.Timedelta(days=1):%Y-%m-%d}) · opening hours {OPEN_TEXT}]")
-            with msgs:
-                with st.chat_message("user"):
-                    st.markdown(question)
-                with st.chat_message("assistant"):
-                    with st.spinner("Looking at the data…"):
-                        try:
-                            answer, new_turns, used = fm_chat.ask(api_key, chat_model, st.session_state["chat_api"],
-                                                                  f"{view}\n\n{question}", CHAT_TOOLS)
-                        except Exception as error:  # API errors are explained in plain words; anything else is shown as is
-                            answer, new_turns, used = "⚠️ " + fm_chat.error_message(error), [], []
-                    st.markdown(answer)
-                    if used:
-                        st.caption("Looked at: " + ", ".join(dict.fromkeys(TOOL_LABELS.get(t, t) for t in used)))
+            with msgs, st.chat_message("assistant"):
+                with st.spinner("Looking at the data…"):
+                    try:
+                        answer, new_turns, used = fm_chat.ask(api_key, chat_model, st.session_state["chat_api"],
+                                                              f"{view}\n\n{question}", CHAT_TOOLS)
+                    except Exception as error:  # API errors are explained in plain words; anything else is shown as is
+                        answer, new_turns, used = "⚠️ " + fm_chat.error_message(error), [], []
+                st.markdown(answer)
+                if used:
+                    st.caption("Looked at: " + ", ".join(dict.fromkeys(TOOL_LABELS.get(t, t) for t in used)))
             st.session_state["chat_api"] += new_turns
             st.session_state["chat_display"].append({"role": "assistant", "text": answer, "tools": used})
+
+
+with chat_box, st.container(key="chat-panel"):
+    chat_panel()
