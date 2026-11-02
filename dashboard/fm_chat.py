@@ -19,7 +19,7 @@ from google import genai
 
 DEFAULT_MODEL = "gemini-3.5-flash-lite"  # 3-5 s per question in testing; gemini-3.8-flash took minutes or timed out
 MAX_TOOL_ROUNDS = 12
-REQUEST_TIMEOUT_MS = 45_000  # per Gemini request, so a slow model gives an error instead of spinning for minutes
+REQUEST_TIMEOUT_SECONDS = 45  # per Gemini request, so a slow model gives an error instead of spinning for minutes
 
 SYSTEM_PROMPT = """You are the facilities-management (FM) data assistant for Chamchuri 5, an administrative office \
 building at Chulalongkorn University, Bangkok. You answer questions from the FM team about air-conditioning (AC) energy, \
@@ -104,7 +104,7 @@ def _run_tool(tools_by_name, name, arguments):
 @functools.lru_cache(maxsize=4)
 def _client(api_key):
     """One client per key: creating one takes about 2 s."""
-    return genai.Client(api_key=api_key, http_options={"timeout": REQUEST_TIMEOUT_MS})
+    return genai.Client(api_key=api_key)
 
 
 def ask(api_key, model, history, question, tools):
