@@ -447,7 +447,7 @@ if not FLOORS:
 with st.sidebar:
     scopes = [ALL] + FLOORS
     floor = st.selectbox("View", scopes, index=scopes.index(DEFAULT_SCOPE) if DEFAULT_SCOPE in scopes else 0,
-                         format_func=lambda f: "Whole building" if f == ALL else f"Floor {f}",
+                         format_func=lambda f: "Whole Building" if f == ALL else f"Floor {f}",
                          help="Whole building combines Floors " + ", ".join(map(str, FLOORS)) + ". "
                               "Applies to every tab except Compare floors, which always shows each floor.")
 SCOPE = floor
@@ -467,7 +467,7 @@ head.title("Chamchuri 5 · AC energy monitor",
            help="Where is air-conditioning energy wasted, and what load should we plan for? Flags are potential anomalies "
                 "for review, not diagnosed faults. kWh and THB figures are estimates, not verified savings.")
 tf_mode = tf_mode_col.segmented_control(
-    "Timeframe", ["Day", "Week", "Month", "Jul–Dec"], default="Jul–Dec", key="tf_mode",
+    "Timeframe", ["Day", "Week", "Month", "Jul–Dec"], default="Day", key="tf_mode",
     help="Every number, colour and alert on every tab is worked out for this timeframe. Week = Monday to Sunday and "
          "Month = the calendar month around the date you pick.") or "Jul–Dec"
 default_day = min(max(pd.Timestamp("2019-07-27").date(), data_first), data_last)  # a Saturday with clear issues
@@ -499,43 +499,43 @@ st.caption(f"**{scope_desc}** · **{period_start:%a %d %b %Y}"
              "data: CU-BEMS, Chulalongkorn University, Bangkok · weather: Open-Meteo")
 
 with st.sidebar:
-    with st.expander("Advanced: anomaly thresholds"):
-        st.caption("Defaults: k = 1.5, 1.5, 8 intervals (2 h), 0.5 kW. Every tab updates.")
-        k_iqr = st.slider("Statistical rule: IQR multiplier k", 0.5, 5.0, 1.5, 0.25,
-                          help="How far above the normal range power must go to count as 'unusually high' for that "
-                               "time of day and weekday. A higher k means only extreme spikes get flagged. Default 1.5.")
-        k_res = st.slider("Persistence rule: residual IQR multiplier", 0.5, 5.0, 1.5, 0.25,
-                          help="How far above the expected power a unit must be to count as 'running high'. "
-                               "A higher value means only larger, sustained overuse gets flagged. Default 1.5.")
-        persist = st.slider("Persistence: minimum consecutive 15-min intervals", 1, 24, 8,
-                            help="How long a unit must stay high before it's flagged. "
-                                 "8 intervals × 15 minutes = 2 hours. Default 8.")
-        on_kw = st.slider("'Running' threshold (kW)", 0.1, 5.0, 0.5, 0.1,
-                          help="Below this power the unit counts as 'off', and nothing below it is ever flagged. "
-                               "Default 0.5 kW.")
-    with st.expander("Building opening hours"):
+    with st.expander("Building Opening Hours"):
         st.caption("Not in the dataset, so set these to the building's real hours. Defaults follow the data: on weekdays "
                    "the AC units run from about 07:45 to 16:45.")
-        open_days = st.multiselect("Open on", DAYS, default=DAYS[:5], key="open_days")
-        open_from, open_to = st.slider("Opening hours", value=(dt.time(7, 30), dt.time(17, 30)), step=dt.timedelta(minutes=15),
+        open_days = st.multiselect("Open On", DAYS, default=DAYS[:5], key="open_days")
+        open_from, open_to = st.slider("Opening Hours", value=(dt.time(7, 30), dt.time(17, 30)), step=dt.timedelta(minutes=15),
                                        format="HH:mm", key="open_hours",
                                        help="While the building is closed, normal AC use counts as zero: any AC running "
                                             "is flagged as after-hours and all its energy counts as waste.")
-        use_holidays = st.checkbox("Closed on Thai public holidays", True, key="use_holidays",
+        use_holidays = st.checkbox("Closed On Thai Public Holidays", True, key="use_holidays",
                                    help="Official holidays and substitution days, plus closures seen in the data. Also "
                                         "used by the forecast: a holiday is a known closure, so demand is forecast as zero.")
         if use_holidays:
             in_range = {d: n for d, n in {**HOLIDAYS, **OBSERVED_CLOSURES}.items() if data_first <= d <= data_last}
             st.caption("Closure days in the reporting period: " + "; ".join(f"{d:%d %b} {n.split(' (')[0]}"
                                                                            for d, n in sorted(in_range.items())))
+    with st.expander("Advanced: Anomaly Thresholds"):
+        st.caption("Defaults: k = 1.5, 1.5, 8 intervals (2 h), 0.5 kW. Every tab updates.")
+        k_iqr = st.slider("Statistical Rule: IQR Multiplier k", 0.5, 5.0, 1.5, 0.25,
+                          help="How far above the normal range power must go to count as 'unusually high' for that "
+                               "time of day and weekday. A higher k means only extreme spikes get flagged. Default 1.5.")
+        k_res = st.slider("Persistence Rule: Residual IQR Multiplier", 0.5, 5.0, 1.5, 0.25,
+                          help="How far above the expected power a unit must be to count as 'running high'. "
+                               "A higher value means only larger, sustained overuse gets flagged. Default 1.5.")
+        persist = st.slider("Persistence: Minimum Consecutive 15-Min Intervals", 1, 24, 8,
+                            help="How long a unit must stay high before it's flagged. "
+                                 "8 intervals × 15 minutes = 2 hours. Default 8.")
+        on_kw = st.slider("'Running' Threshold (kW)", 0.1, 5.0, 0.5, 0.1,
+                          help="Below this power the unit counts as 'off', and nothing below it is ever flagged. "
+                               "Default 0.5 kW.")
 OPEN = (tuple(DAYS.index(x) for x in open_days), open_from.hour * 60 + open_from.minute,
         open_to.hour * 60 + open_to.minute, use_holidays)
 OPEN_TEXT = (("Mon–Fri" if open_days == DAYS[:5] else ", ".join(open_days) or "never")
              + f" {open_from:%H:%M}–{open_to:%H:%M}" + (", closed on public holidays" if use_holidays else ""))
 
 with st.sidebar:
-    with st.expander("Advanced: electricity price"):
-        TARIFF_THB = st.number_input("Electricity price (THB per kWh)", 0.0, 20.0, DEFAULT_TARIFF_THB, 0.1, key="tariff",
+    with st.expander("Advanced: Electricity Price"):
+        TARIFF_THB = st.number_input("Electricity Price (THB Per kWh)", 0.0, 20.0, DEFAULT_TARIFF_THB, 0.1, key="tariff",
                                      help="Assumption. Used for THB figures in triage, work orders and the simulator.")
 
 # All three flagging rules are always on. Items are ranked by the triage score (magnitude × confidence ÷ effort).
@@ -549,7 +549,7 @@ COL_OF = dict(zip(BRICK_UNITS["asset_id"], BRICK_UNITS["power_column"]))
 DEFAULT_OPEN = ((0, 1, 2, 3, 4), 7 * 60 + 30, 17 * 60 + 30, True)
 OPEN_STATUSES = ("Open", "Acknowledged", "Work order raised", "Reopened")
 with st.sidebar:
-    st.caption(f"Work-order storage: {STORE.name}")
+    st.caption(f"Work-Order Storage: {STORE.name}")
 
 
 def floor_forecasts():
@@ -1376,7 +1376,7 @@ with tab_forecast:
     if use_holidays:
         st.caption(f"Uses the Thai public-holiday calendar: a holiday is known in advance, so demand is forecast as zero. "
                    f"This cuts the chosen method's average error from {mae_without_holidays:.1f} to {selected_mae:.1f} kW "
-                   "per hour. Turn it off under Building opening hours in the sidebar.")
+                   "per hour. Turn it off under Building Opening Hours in the sidebar.")
     left, right = st.columns([1, 1], gap="large")
     with left:
         st.dataframe(tm[["Rank", "Model", "MAE_kW", "peak_hour_MAE_kW"]].round(2), hide_index=True,
