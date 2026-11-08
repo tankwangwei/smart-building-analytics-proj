@@ -40,7 +40,8 @@ def asset_card_body(c, asset_id):
     k[3].metric("Last service", f"{last_service:%d %b %Y}" if last_service is not None else "–")
     k[4].metric("Flag precision", f"{100 * p:.0f}%" if pd.notna(p) else "–", help="Fault confirmed ÷ (confirmed + no fault) from close-outs.")
     if len(log) and log["simulated"].fillna(0).astype(int).any():
-        st.markdown(SIM_BADGE + " Service and fault entries for this unit include simulated history.", unsafe_allow_html=True)
+        st.markdown(SIM_BADGE + " Includes simulated history", unsafe_allow_html=True,
+                    help="Service and fault entries for this unit include simulated history.")
     if len(inc):
         st.markdown("**Incidents** " + " ".join(f"{r.pattern} {status_chip(r.status)}" for r in inc.itertuples()), unsafe_allow_html=True)
 
@@ -109,8 +110,9 @@ def maintenance_tab(c):
     log = c.store.table("maintenance_log")
     sim = int(log["simulated"].fillna(0).astype(int).sum()) if len(log) else 0
     if sim:
-        st.markdown(SIM_BADGE + f" {sim} of {len(log)} log entries are simulated (an 18-month demo history, fixed random seed). "
-                    "Import real records below to replace them.", unsafe_allow_html=True)
+        st.markdown(SIM_BADGE + f" {sim} of {len(log)} log entries simulated", unsafe_allow_html=True,
+                    help="An 18-month demo history with a fixed random seed. Import real records under Maintenance log "
+                         "to replace them.")
     st.subheader("Fleet health", help="Health score: 100 = as normal for the unit. Built from real sensor data (efficiency "
                                       "index, drift against baseline, warm-while-running hours, peer gap, starts). Fault risk "
                                       "and likely fault come from simulated maintenance entries.")
@@ -156,8 +158,8 @@ def maintenance_tab(c):
         c.style(fig, 300, "kW per °C of outdoor (running, weekdays)", None, margin_top=10)
         fig.update_yaxes(rangemode="normal")
         st.plotly_chart(fig, width="stretch", key="deg_chart")
-    st.caption(f"Since the last service ({h.loc[asset, 'last_service']:%d %b %Y}): {deg['status']}. "
-               "Real sensor data; the 90 days / 500 run hours / +15% limits are assumptions to confirm with facilities.")
+    st.caption(f"Since the last service ({h.loc[asset, 'last_service']:%d %b %Y}): {deg['status']}",
+               help="Real sensor data. The 90 days / 500 run hours / +15% limits are assumptions to confirm with facilities.")
     if st.button("Open asset card", key="maint_card"):
         c.open_asset(asset)
 

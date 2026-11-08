@@ -168,12 +168,13 @@ def work_orders(c):
     with left:
         st.write(wo["symptom"])
         slot = f"{pd.Timestamp(wo['slot_start']):%A %d %b, %H:%M}–{pd.Timestamp(wo['slot_end']):%H:%M}"
-        st.caption(f"Due {wo['due_date']} · suggested slot {slot} (lowest forecast demand in opening hours, "
-                   f"about {ev.get('slot_forecast_kW', '–')} kW) · cost of delay ≈ {ev.get('cost_of_delay_THB_per_day', '–')} THB/day")
+        st.caption(f"Due {wo['due_date']} · slot {slot} · delay ≈ {ev.get('cost_of_delay_THB_per_day', '–')} THB/day",
+                   help=f"Suggested slot = the lowest forecast demand in opening hours (about "
+                        f"{ev.get('slot_forecast_kW', '–')} kW). Delay = excess cost per day the fix waits.")
         likely = ev.get("likely_cause")
         if likely:
-            st.caption("Likely cause (demo: trained on simulated maintenance history): "
-                       + ", ".join(f"{k} {v:.0%}" for k, v in likely.items()))
+            st.caption("Likely cause: " + ", ".join(f"{k} {v:.0%}" for k, v in likely.items()),
+                       help="Demo: trained on simulated maintenance history.")
         checklist = _loads(wo["checklist_json"]) or []
         new_list = []
         for i, item in enumerate(checklist):
@@ -229,7 +230,7 @@ def exception_form(c):
     sug = st.session_state.get("pending_exception")
     if not sug:
         return
-    st.markdown("**Legitimate use: confirm an exception** so these intervals are no longer flagged.")
+    st.markdown("**Confirm an exception**", help="Legitimate use: once confirmed, these intervals are no longer flagged.")
     with st.form("exception_form"):
         a, b, d_ = st.columns(3)
         days = a.multiselect("Weekdays", range(7), [int(x) for x in sug["weekdays"].split(",") if x != ""],
@@ -263,13 +264,14 @@ def learning(c):
     sim_n = int(c.store.table("closeouts")["simulated"].fillna(0).sum())
     k3.metric("of which simulated", sim_n, help="Demo close-outs seeded on real incidents. Replace them with real ones.")
     if sim_n:
-        st.markdown(SIM_BADGE + " The close-outs behind these figures are demo data, not real technician findings.",
-                    unsafe_allow_html=True)
+        st.markdown(SIM_BADGE + " Demo close-outs", unsafe_allow_html=True,
+                    help="The close-outs behind these figures are demo data, not real technician findings.")
     tables = precision_tables(c.store, c.events)
     with st.expander("Precision by rule, pattern and unit"):
-        st.caption("Precision = confirmed ÷ (confirmed + no fault). The confidence of new flags blends the base score "
-                   "(80%) with this record, smoothed so one or two close-outs cannot swing it: "
-                   "final = 0.8 × base + 0.2 × 100 × (confirmed + 1) ÷ (confirmed + no fault + 2).")
+        st.caption("How precision is used",
+                   help="Precision = confirmed ÷ (confirmed + no fault). The confidence of new flags blends the base score "
+                        "(80%) with this record, smoothed so one or two close-outs cannot swing it: "
+                        "final = 0.8 × base + 0.2 × 100 × (confirmed + 1) ÷ (confirmed + no fault + 2).")
         for name in ["rule", "pattern", "unit"]:
             t = tables[name].reset_index()
             if len(t):
@@ -281,7 +283,7 @@ def learning(c):
         st.info(text)
     exc = c.store.table("exceptions")
     if len(exc):
-        st.markdown("**Exceptions** (matching intervals are never flagged)")
+        st.markdown("**Exceptions**", help="Matching intervals are never flagged.")
         for r in exc.itertuples():
             cols = st.columns([4, 1])
             active = str(r.active) in ("1", "True", "true")
