@@ -39,6 +39,17 @@ def heat_index_c(temp_c, rh_pct):
     return (f - 32) * 5 / 9
 
 
+def shift_profile(m1, x, slope, reference_end):
+    """The typical weekly pattern (M1) moved by slope × (x − the baseline weekday average of x for that hour of day),
+    only while the AC is expected to run, so closed hours stay at zero. Reference levels come from before
+    `reference_end`, so a forecast never uses weather from the period it is scored on."""
+    base = x.loc[(x.index < reference_end) & (x.index.dayofweek < 5)]
+    reference = base.groupby(base.index.hour).mean()
+    anomaly = x.reindex(m1.index) - m1.index.hour.map(reference).to_numpy()
+    running = m1 > 0.05 * m1.max()
+    return (m1 + np.where(running, slope * anomaly, 0)).clip(lower=0)
+
+
 def hot_days(weather, test_start):
     """Days whose daytime (08:00-17:00) mean heat index is in the top 10 % for that calendar month among baseline days
     (before `test_start`). Heat index explains daily AC energy better than temperature (R² 0.59 vs 0.32, Jul–Dec 2019

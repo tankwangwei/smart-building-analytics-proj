@@ -28,7 +28,7 @@ from fm_sim import Settings, prepare, settings_from_state, simulate_series, summ
 from fm_store import get_store
 from fm_twin import unit_forecasts
 from fm_core import (CLOSED_DATES, COMFORT_BAND, DEFAULT_TARIFF_THB, INTERVAL_HOURS, PATTERNS, PRIORITY_LEVELS, add_levels,
-                     build_events, building_closed, flag_detail, heat_index_c, hot_days, priority_levels)
+                     build_events, building_closed, flag_detail, heat_index_c, hot_days, priority_levels, shift_profile)
 from thai_holidays import HOLIDAYS, OBSERVED_CLOSURES, closure_name
 
 ROOT = Path(os.environ.get("AC_OUTPUT_FOLDER", Path(__file__).resolve().parents[1] / "ac_analysis_outputs"))
@@ -221,11 +221,12 @@ def day_axis(fig, days):
 
 
 # ---------------------------------------------------------------- data
-def forecast_metrics(table, models):
-    """Test-period accuracy on hours where every model has a value (same rules as the notebook)."""
+def forecast_metrics(table, models, peak_threshold):
+    """Test-period accuracy on hours where every model has a value (same rules as the notebook). Peak hours are those
+    at or above `peak_threshold`, the baseline's 90th percentile of hourly demand, so the test period never sets it."""
     common = table[["floor_kW"] + models].dropna()
     actual = common["floor_kW"]
-    peak = actual >= actual.quantile(.9)
+    peak = actual >= peak_threshold
     rows = []
     for m in models:
         error = common[m] - actual
@@ -237,17 +238,11 @@ def forecast_metrics(table, models):
 
 
 def shift_m1(forecast, x, slope):
-    """The typical weekly pattern (M1) moved by slope × (x − the baseline weekday average of x for that hour of day),
-    only while the AC is expected to run, so closed hours stay at zero. Reference levels come from before Jul 2019."""
-    base = x.loc[(x.index < TEST_START) & (x.index.dayofweek < 5)]
-    reference = base.groupby(base.index.hour).mean()
-    m1 = forecast["M1 median profile"]
-    anomaly = x.reindex(forecast.index) - forecast.index.hour.map(reference).to_numpy()
-    running = m1 > 0.05 * m1.max()
-    return (m1 + np.where(running, slope * anomaly, 0)).clip(lower=0)
+    """The typical weekly pattern shifted by weather (fm_core.shift_profile), with reference levels from before Jul 2019."""
+    return shift_profile(forecast["M1 median profile"], x, slope, TEST_START)
 
 
-def add_weather_model(forecast, weather, sensitivity, test_metrics, heat_index_slope=None):
+def add_weather_model(forecast, weather, sensitivity, test_metrics, peak_threshold, heat_index_slope=None):
     """Weather-adjusted versions of the typical weekly pattern. Observed weather stands in for a weather forecast.
 
     - Temperature: the slope is the sum of the floor's per-unit regression slopes (kW per °C outdoor).
@@ -260,7 +255,7 @@ def add_weather_model(forecast, weather, sensitivity, test_metrics, heat_index_s
         forecast[HEAT_MODEL] = shift_m1(forecast, weather["heat_index_C"], max(0.0, heat_index_slope))
         added.append(HEAT_MODEL)
     models = [c for c in forecast.columns if c != "floor_kW"]
-    return forecast, pd.concat([test_metrics, forecast_metrics(forecast, models).loc[added]])
+    return forecast, pd.concat([test_metrics, forecast_metrics(forecast, models, peak_threshold).loc[added]])
 
 
 @st.cache_data(show_spinner="Combining all floors…")
@@ -280,7 +275,18 @@ def load_building():
     chosen = {f: p["validation_metrics"]["MAE_kW"].idxmin() for f, p in parts.items()}
     forecast["Selected per floor"] = pd.concat([parts[f]["forecast"][m] for f, m in chosen.items()], axis=1).sum(axis=1, min_count=n)
     data["forecast"] = forecast
-    data["test_metrics"] = forecast_metrics(forecast, models + ["Selected per floor"])
+    data["peak_threshold"] = (pd.concat([p["baseline_demand"] for p in parts.values()], axis=1)
+                              .sum(axis=1, min_count=n).quantile(.9))
+    data["test_metrics"] = forecast_metrics(forecast, models + ["Selected per floor"], data["peak_threshold"])
+    # Apr–Jun 2019 validation predictions, summed the same way (for the error bands; never the test period)
+    valids = {f: p["validation_predictions"] for f, p in parts.items()}
+    if all(v is not None and chosen[f] in v for f, v in valids.items()):
+        common = [c for c in first["validation_predictions"].columns if all(c in v for v in valids.values())]
+        valid = pd.DataFrame({c: pd.concat([v[c] for v in valids.values()], axis=1).sum(axis=1, min_count=n) for c in common})
+        valid["Selected per floor"] = pd.concat([valids[f][m] for f, m in chosen.items()], axis=1).sum(axis=1, min_count=n)
+        data["validation_predictions"] = valid
+    else:
+        data["validation_predictions"] = None
     # Only the combination of each floor's validation choice is "selected" for the building
     data["validation_metrics"] = pd.DataFrame({"MAE_kW": [np.nan]}, index=["Selected per floor"])
     data["selected_model"] = "Selected per floor"
@@ -327,12 +333,36 @@ def load_floor(floor):
             "floor_kpis": pd.read_csv(OUT / "floor_reporting_15min_kpis.csv", index_col=0).iloc[:, 0],
             # lighting, plug and lux per zone (15-minute, reporting period) for the digital twin
             "zone_loads": (pd.read_csv(OUT / "zone_loads_15min.csv", index_col=0, parse_dates=True)
-                           if (OUT / "zone_loads_15min.csv").exists() else None)}
+                           if (OUT / "zone_loads_15min.csv").exists() else None),
+            # Jul 2018 – Jun 2019 hourly demand: peak hours are defined from it, as in the notebook
+            "baseline_demand": pd.read_csv(OUT / "forecast_baseline_hourly_demand.csv", index_col=0,
+                                           parse_dates=True).iloc[:, 0],
+            # Apr–Jun 2019 predictions of every method fitted on Jul 2018 – Mar 2019 (error bands are learned on these)
+            "validation_predictions": (pd.read_csv(OUT / "forecast_validation_predictions.csv", index_col=0,
+                                                   parse_dates=True)
+                                       if (OUT / "forecast_validation_predictions.csv").exists() else None)}
+    data["peak_threshold"] = data["baseline_demand"].quantile(.9)
     hi_file = ROOT / "heat_index_sensitivity.csv"  # from fit_heat_index.py
     hi_slope = (pd.read_csv(hi_file, index_col=0)["kW_per_degC_heat_index"].get(int(floor))
                 if hi_file.exists() else None)
     data["forecast"], data["test_metrics"] = add_weather_model(
-        data["forecast"], data["weather"], data["sensitivity"], data["test_metrics"], hi_slope)
+        data["forecast"], data["weather"], data["sensitivity"], data["test_metrics"], data["peak_threshold"], hi_slope)
+    hi_pred_file = ROOT / "heat_index_validation_predictions.csv"
+    if data["validation_predictions"] is not None and HEAT_MODEL in data["forecast"] and hi_pred_file.exists():
+        data["validation_predictions"][HEAT_MODEL] = pd.read_csv(hi_pred_file, index_col=0, parse_dates=True)[
+            f"floor_{floor}"].reindex(data["validation_predictions"].index)
+    # The heat-index method's Apr–Jun 2019 score (fit_heat_index.py, fitted on Jul 2018 – Mar 2019 like the notebook's
+    # methods), so validation can choose it; its next-day demonstration replaces the notebook's when it is chosen
+    hi_valid_file = ROOT / "heat_index_validation_metrics.csv"
+    if HEAT_MODEL in data["forecast"] and hi_valid_file.exists():
+        scores = pd.read_csv(hi_valid_file, index_col=0)
+        if int(floor) in scores.index:
+            row = scores.loc[[int(floor)]].set_index("model")[data["validation_metrics"].columns.intersection(scores.columns)]
+            data["validation_metrics"] = pd.concat([data["validation_metrics"], row]).sort_values("MAE_kW")
+            demo_file = ROOT / "heat_index_next_24_hours.csv"
+            if data["validation_metrics"].index[0] == HEAT_MODEL and demo_file.exists():
+                demo = pd.read_csv(demo_file, index_col=0, parse_dates=True)[f"floor_{floor}"]
+                data["next24"] = data["next24"].assign(predicted_kW=demo.reindex(data["next24"].index), method=HEAT_MODEL)
     return data
 
 
@@ -710,12 +740,12 @@ fc = data["forecast"].copy()
 forecast_models = [c for c in fc.columns if c != "floor_kW"]
 vm = data["validation_metrics"]
 selected_model = data.get("selected_model") or vm["MAE_kW"].idxmin()
-mae_without_holidays = forecast_metrics(fc, forecast_models).loc[selected_model, "MAE_kW"]
+mae_without_holidays = forecast_metrics(fc, forecast_models, data["peak_threshold"]).loc[selected_model, "MAE_kW"]
 if use_holidays:
     # A public holiday is known in advance, so a forecast issued the midnight before can expect the building closed
     fc.loc[fc.index.normalize().isin(CLOSED_DATES), forecast_models] = 0.0
 # Scored on the same hours for every method, after the holiday adjustment
-tm = forecast_metrics(fc, forecast_models).sort_values("MAE_kW")
+tm = forecast_metrics(fc, forecast_models, data["peak_threshold"]).sort_values("MAE_kW")
 tm.insert(0, "Rank", range(1, len(tm) + 1))
 tm.insert(1, "Model", [("✓ " if m == selected_model else "") + MODEL_LABELS.get(m, m) for m in tm.index])
 tm["Validation MAE_kW"] = vm["MAE_kW"].reindex(tm.index)
@@ -828,11 +858,27 @@ def floor_forecast_series(f):
     return pd.concat([series, nxt[~nxt.index.isin(series.index)]])
 
 
+def validation_pair(scope, model):
+    """(actual, prediction) on Apr–Jun 2019 for one method, from the fit on Jul 2018 – Mar 2019, with public holidays
+    forecast as zero when the Forecast tab does that. Error bands are learned on these, never on the test period.
+    None if the notebook has not exported them (re-run run_all_floors.py)."""
+    valid = load(scope).get("validation_predictions")
+    if valid is None or model not in valid:
+        return None
+    pred = valid[model].copy()
+    if use_holidays:
+        pred[pred.index.normalize().isin(CLOSED_DATES)] = 0.0
+    return valid["floor_kW"], pred
+
+
 def floor_interval(f):
-    """80 % interval bounds for one floor's forecast, learned on Jul–Sep (where available)."""
-    fd = load(f)
+    """80 % interval bounds for one floor's forecast (its chosen method), learned on Apr–Jun 2019 errors."""
     series = floor_forecast_series(f)
-    lower, upper, _ = interval_bounds(fd["forecast"]["floor_kW"], series.reindex(fd["forecast"].index))
+    pair = validation_pair(f, load(f)["validation_metrics"]["MAE_kW"].idxmin())
+    if pair is None:
+        empty = pd.Series(np.nan, index=series.index)
+        return empty, empty
+    lower, upper, _ = interval_bounds(*pair, series)
     return lower, upper
 
 
@@ -1463,16 +1509,18 @@ with tab_forecast:
     scope_note("Accuracy is always scored on Jul–Dec 2019 · the week chart has its own date · the next-day forecast "
                "follows the timeframe")
     models = [c for c in fc.columns if c != "floor_kW"]
-    forecast_help = ("Methods were trained on Jul 2018 – Jun 2019, one was chosen on Apr–Jun 2019, and all were scored "
-                     "on Jul–Dec 2019, data they never saw. Not affected by the review period. "
-                     "Ranked by average error on Jul–Dec 2019 (lower = better). The ✓ method is the one to use: it was "
-                     "chosen on earlier data (Apr–Jun 2019) before this test, which is the fair way to pick one. ")
+    forecast_help = ("Every method learns only from the Jul 2018 – Jun 2019 baseline. To pick one, each was fitted on "
+                     "Jul 2018 – Mar 2019 and scored on Apr–Jun 2019 (the last part of the baseline); every method was then "
+                     "refitted on the full baseline and scored on Jul–Dec 2019, data none of them saw. Not affected by the "
+                     "review period. Ranked by average error on Jul–Dec 2019 (lower = better). The ✓ method is the one to "
+                     "use: it had the lowest Apr–Jun error, chosen before this test, which is the fair way to pick one. ")
     if floor == ALL:
         forecast_help += ("For the whole building, 'Best method per floor (combined)' forecasts each floor with its "
                           "own chosen method and adds them up: "
                           + "; ".join(f"Floor {f}: {MODEL_LABELS.get(m, m)}" for f, m in {f: load(f)["validation_metrics"]["MAE_kW"].idxmin() for f in FLOORS}.items())
                           + ". ")
-    forecast_help += ("Peak-hour error = average error in the busiest 10 % of hours. Bias: + means it predicts too "
+    forecast_help += ("Peak-hour error = average error in hours at or above the baseline's busiest 10 % level. "
+                      "Bias: + means it predicts too "
                       "high on average, − too low. Methods with weather use observed Open-Meteo weather in place of a "
                       "weather forecast, so their errors are optimistic.")
 
@@ -1542,10 +1590,12 @@ with tab_forecast:
             style(fig, 220, "MAE (kW)" if name == "Hour" else None, f"By {name.lower()}", margin_top=10)
             fig.update_layout(hovermode="closest")
             col.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
-        lower, upper, coverage = interval_bounds(actual_s, model_s)
-        st.metric("80% interval coverage (Oct–Dec)", f"{coverage * 100:.0f}%" if pd.notna(coverage) else "–",
-                  help="Error quantiles by hour of day are learned on Jul–Sep and checked on Oct–Dec. Above 80% means the "
-                       "band is conservative.")
+        pair = validation_pair(floor, selected_model)
+        coverage = interval_bounds(*pair, model_s, actual_s)[2] if pair is not None else np.nan
+        st.metric("80% interval coverage (Jul–Dec)", f"{coverage * 100:.0f}%" if pd.notna(coverage) else "–",
+                  help="Error quantiles by hour of day are learned on Apr–Jun 2019 (validation errors of the method fitted on "
+                       "Jul 2018 – Mar 2019, so the test period is never used) and checked on Jul–Dec 2019. Above 80% "
+                       "means the band is conservative, below means it is too narrow.")
 
     section("Actual vs forecast")
     c1, c2 = st.columns([2, 1], vertical_alignment="bottom")
@@ -1743,7 +1793,8 @@ with tab_twin:
     if mode == "Forecast next day":
         twin_frame(period_end.normalize(), 1, compact=False, height=760, mode=mode)
         st.caption(f"Forecast for {period_end:%A %d %B %Y}. Each unit's share of the floor forecast is its baseline share of "
-                   "load for that hour of the week (learned from the training year). The 80% band uses error quantiles from Jul–Sep.")
+                   "load for that hour of the week (learned from the training year). The 80% band uses error quantiles learned on "
+                   "Apr–Jun 2019 validation errors.")
     elif mode == "What-if":
         _s = settings_from_state(st.session_state)
         twin_frame(twin_start, min(twin_days, 3), compact=False, height=760, mode=mode)
@@ -2127,7 +2178,7 @@ def forecast_accuracy(floor: str = "") -> str:
     fl = _scope_arg(floor)
     table, model = _forecast_for(fl)
     cols = [c for c in table.columns if c != "floor_kW"]
-    m = forecast_metrics(table, cols)
+    m = forecast_metrics(table, cols, load(fl)["peak_threshold"])
     return _json({"scope": _scope_name(fl), "method_used": MODEL_LABELS.get(model, model),
                   "methods": [{"method": MODEL_LABELS.get(i, i), "mean_abs_error_kW": _r(r["MAE_kW"], 2),
                                "peak_hour_error_kW": _r(r["peak_hour_MAE_kW"], 2), "bias_pct": _r(r["NMBE_pct"]),

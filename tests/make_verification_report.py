@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "dashboard"))
 from conftest import FLOORS, OPEN_DEFAULT, OUT, ROOT, read_floor  # noqa: E402
 from fm_core import CLOSED_DATES, build_events, flag_detail  # noqa: E402
 from verify_analysis import baseline_bias_pct  # noqa: E402
-from verify_forecast import ashrae_table, interval_coverage, metrics, pred, rolling_profile_forecast  # noqa: E402
+from verify_forecast import ashrae_table, baseline, interval_coverage, metrics, pred, rolling_profile_forecast  # noqa: E402
 
 
 def md(df, floatfmt=".2f"):
@@ -41,9 +41,10 @@ def main():
               "- **Reproduction from the raw 1-minute data (A1, A2 second half):** `combined_by_floor.csv` (618 MB) is not in the "
               "repository, so recomputing energy and peaks from raw minutes was not done. Instead the stored KPIs were "
               "reconciled against the 15-minute detail (see A2 below).",
-              "- **Training-year refit and a true leakage audit of M1 (B1):** the Jul 2018 – Jun 2019 loads are not in the "
-              "repository either. The audit checks what can be seen: the lag models use only values from >= 24 h / 168 h "
-              "earlier, and M1 is one fixed profile over the whole test period (it is not refit on test data).",
+              "- **Refitting every method from the raw data (B1):** needs `combined_by_floor.csv`. The notebook exports the "
+              "Jul 2018 – Jun 2019 baseline hourly demand and the Apr–Jun 2019 validation predictions, so the audit checks "
+              "that M1 is exactly the baseline's hour-of-week median, that the lag models use only values from >= 24 h / "
+              "168 h earlier, and that the error bands are learned on Apr–Jun 2019, never on the test period.",
               "- **Realistic weather (B6):** re-scoring with Open-Meteo's historical-forecast archive needs network access and "
               "was not run. The weather models still use observed weather, so their accuracy is optimistic.",
               "- **Eyeball precision/recall (A5):** needs a person. `docs/verification_event_sample.csv` lists 20 random flagged "
@@ -121,13 +122,15 @@ def main():
                           "Fixed M1 MAE (holiday adj.)": (holiday_adjust(fixed)[ok] - act[ok]).abs().mean(),
                           "Rolling MAE (holiday adj.)": (holiday_adjust(rolled)[ok] - act[ok]).abs().mean()})
     lines += ["## B3. Rolling-origin backtest (weekly refit, expanding window, from 26 Aug 2019)", "",
-              "The rolling model only has Jul–Dec 2019 history (the training year is not available here), so it is a "
-              "smaller-sample comparison, not proof either way.", "", md(pd.DataFrame(roll_rows).astype({"Floor": str})), ""]
+              "Diagnostic only, not a project method: the rolling model learns from Jul–Dec 2019 itself, which the project's "
+              "methods never do (they are fitted on the Jul 2018 – Jun 2019 baseline). It only shows how much an operational "
+              "weekly refit might change the error.", "", md(pd.DataFrame(roll_rows).astype({"Floor": str})), ""]
 
     fc = holiday_adjust(b["M1 median profile"])
     err = fc - b["floor_kW"]
     hol = b.index.normalize().isin(CLOSED_DATES)
-    peak = b["floor_kW"] >= b["floor_kW"].quantile(.9)
+    # Peak hours = at or above the baseline's 90th percentile, as in the notebook (the test period never sets it)
+    peak = b["floor_kW"] >= pd.concat([baseline(f) for f in FLOORS], axis=1).sum(axis=1, min_count=len(FLOORS)).quantile(.9)
     def breakdown(name, key):
         g = pd.DataFrame({"key": key, "abs": err.abs(), "err": err}).groupby("key")
         return pd.DataFrame({"Breakdown": name, "Group": [str(k) for k in g.size().index], "MAE kW": g["abs"].mean().values,
@@ -138,13 +141,20 @@ def main():
     hr = breakdown("hour", b.index.hour)
     lines += ["## B3. Error breakdown (building, M1, holiday-adjusted)", "", md(br), "", "By hour of day:", "", md(hr), ""]
 
-    cov = pd.DataFrame({"Floor": FLOORS, "80% interval coverage on Oct–Dec": [interval_coverage(f) for f in FLOORS]})
+    cov = pd.DataFrame({"Floor": FLOORS,
+                        "Coverage, holidays forecast as zero (dashboard)": [interval_coverage(f) for f in FLOORS],
+                        "Coverage, no holiday adjustment": [interval_coverage(f, holidays=False) for f in FLOORS]})
     lines += ["## B5. 80% prediction interval", "",
-              "Empirical error quantiles by hour of day, calibrated on Jul–Sep 2019 and scored on Oct–Dec 2019.", "",
+              "Empirical error quantiles by hour of day, learned on the Apr–Jun 2019 validation errors of M1 fitted on "
+              "Jul 2018 – Mar 2019 (inside the baseline year), and scored on Jul–Dec 2019. The test period is never used "
+              "to set the band.", "",
               md(cov.astype({"Floor": str}), ".2f"), "",
-              "Coverage is above the nominal 80% because the calibration errors include the large misses on holidays; the band is "
-              "conservative (wide), not too narrow.", ""]
-    (ROOT / "docs" / "VERIFICATION.md").write_text("\n".join(lines))
+              "Coverage near 80% means the band is well calibrated; above means conservative (wide), below means too narrow. "
+              "With public holidays forecast as zero (the dashboard's default, fair because holidays are known in advance) "
+              "the band covers about 80–90% on every floor. Without that adjustment Floor 3 drops to about half: its "
+              "Jul–Dec 2019 closures cause misses larger than anything in Apr–Jun, so a band learned there is too narrow "
+              "for them.", ""]
+    (ROOT / "docs" / "VERIFICATION.md").write_text("\n".join(lines), encoding="utf-8")
     print("wrote docs/VERIFICATION.md")
 
 

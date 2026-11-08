@@ -38,16 +38,18 @@ def breakdowns(actual, forecast):
     return out
 
 
-def interval_bounds(actual, forecast, level=0.8, calibrate_until="2019-10-01"):
-    """Empirical error quantiles by hour of day, fitted on data before `calibrate_until`.
-    Returns (lower, upper) forecast series for every hour, and the coverage on the hours after it."""
-    ok = actual.notna() & forecast.notna()
-    err = (actual - forecast)[ok]
-    cal = err[err.index < calibrate_until]
+def interval_bounds(cal_actual, cal_forecast, forecast, actual=None, level=0.8):
+    """Empirical error quantiles by hour of day, learned from the calibration pair (the Apr–Jun 2019 validation
+    predictions, made by methods fitted on Jul 2018 – Mar 2019, so the test period is never used), applied to `forecast`.
+    Returns (lower, upper) series for every hour of `forecast`, and the share of `actual` inside the band."""
+    ok = cal_actual.notna() & cal_forecast.notna()
+    cal = (cal_actual - cal_forecast)[ok]
     lo = cal.groupby(cal.index.hour).quantile((1 - level) / 2)
     hi = cal.groupby(cal.index.hour).quantile(1 - (1 - level) / 2)
     lower = (forecast + forecast.index.hour.map(lo)).clip(lower=0)
     upper = forecast + forecast.index.hour.map(hi)
-    test = err[err.index >= calibrate_until]
+    if actual is None:
+        return lower, upper, float("nan")
+    test = (actual - forecast)[actual.notna() & forecast.notna()]
     inside = (test >= test.index.hour.map(lo)) & (test <= test.index.hour.map(hi))
     return lower, upper, float(inside.mean()) if len(test) else float("nan")

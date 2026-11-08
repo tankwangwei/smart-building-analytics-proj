@@ -1,13 +1,15 @@
 """Phase 0 B: checks on the forecast. Run with: pytest tests/verify_forecast.py -v
 
-Uses the stored hourly predictions (Jul-Dec 2019) and metrics. Re-fitting on the Jul 2018 - Jun 2019 training year
-is not possible from the repository (the raw data is absent), so the leakage audit checks the structure of the
-predictions instead."""
+Uses the stored hourly predictions (Jul-Dec 2019), the Jul 2018 - Jun 2019 baseline hourly demand and the Apr-Jun 2019
+validation predictions that the notebook exports. Project rule: every method is fitted on the Jul 2018 - Jun 2019
+baseline only (Jul 2018 - Mar 2019 for the Apr-Jun validation that picks one), and Jul-Dec 2019 is used only for
+scoring."""
 import numpy as np
 import pandas as pd
 import pytest
 
 from conftest import FLOORS, OUT
+from fm_core import CLOSED_DATES
 from forecast_checks import ashrae_rows, error_metrics, interval_bounds
 
 LAG_MODELS = {"M0 yesterday": 24, "M0 last week": 168}
@@ -15,6 +17,14 @@ LAG_MODELS = {"M0 yesterday": 24, "M0 last week": 168}
 
 def pred(f):
     return pd.read_csv(OUT / f"floor_{f}" / "forecast_hourly_actual_predictions.csv", index_col=0, parse_dates=True)
+
+
+def baseline(f):
+    return pd.read_csv(OUT / f"floor_{f}" / "forecast_baseline_hourly_demand.csv", index_col=0, parse_dates=True).iloc[:, 0]
+
+
+def validation(f):
+    return pd.read_csv(OUT / f"floor_{f}" / "forecast_validation_predictions.csv", index_col=0, parse_dates=True)
 
 
 def metrics(actual, forecast):
@@ -89,11 +99,37 @@ def test_ashrae_reported_honestly():
     assert (t["NMBE_pct"].abs() <= 12).all()  # near the +-10% limit; Floor 3 is marginally over (see VERIFICATION.md)
 
 
+@pytest.mark.parametrize("f", FLOORS)
+def test_m1_is_the_baseline_median_profile(f):
+    """The test-period M1 must be exactly the hour-of-week median of the Jul 2018 - Jun 2019 baseline: nothing from
+    Jul-Dec 2019 went into it."""
+    base = baseline(f).dropna()
+    assert base.index.min() >= pd.Timestamp("2018-07-01") and base.index.max() < pd.Timestamp("2019-07-01")
+    medians = base.groupby(base.index.dayofweek * 24 + base.index.hour).median()
+    p = pred(f)["M1 median profile"].dropna()
+    expected = pd.Series(p.index.dayofweek * 24 + p.index.hour, index=p.index).map(medians)
+    assert np.allclose(p, expected), f
+
+
+@pytest.mark.parametrize("f", FLOORS)
+def test_validation_predictions_are_inside_the_baseline(f):
+    """Error bands are learned on Apr-Jun 2019 validation predictions, which lie inside the baseline year."""
+    v = validation(f)
+    assert v.index.min() >= pd.Timestamp("2019-04-01") and v.index.max() < pd.Timestamp("2019-07-01")
+    assert "floor_kW" in v and "M1 median profile" in v
+
+
 # --- B5: prediction intervals ---------------------------------------------------------------------------------
-def interval_coverage(f, level=0.8):
-    """Calibrate empirical error quantiles by hour of day on Jul-Sep, check coverage on Oct-Dec."""
-    p = pred(f)
-    return interval_bounds(p["floor_kW"], p["M1 median profile"], level)[2]
+def interval_coverage(f, level=0.8, holidays=True):
+    """Learn empirical error quantiles by hour of day on the Apr-Jun 2019 validation errors (M1 fitted on Jul 2018 -
+    Mar 2019), then check coverage on Jul-Dec 2019. With `holidays`, public holidays are forecast as zero on both sides,
+    as the dashboard does (they are known in advance)."""
+    v, p = validation(f), pred(f)
+    cal, fc = v["M1 median profile"], p["M1 median profile"]
+    if holidays:
+        cal = cal.where(~cal.index.normalize().isin(CLOSED_DATES), 0.0)
+        fc = fc.where(~fc.index.normalize().isin(CLOSED_DATES), 0.0)
+    return interval_bounds(v["floor_kW"], cal, fc, p["floor_kW"], level)[2]
 
 
 @pytest.mark.parametrize("f", FLOORS)
@@ -104,9 +140,9 @@ def test_interval_coverage_close_to_nominal(f):
 
 # --- B3: rolling-origin backtest -------------------------------------------------------------------------------
 def rolling_profile_forecast(actual, first_origin="2019-08-26"):
-    """Re-fit a median profile (by hour of week) every Monday on all actuals before that Monday (expanding window)
-    and forecast that week. Training history is limited to Jul-Dec 2019 because the training year is not in the
-    repository, so this is a smaller-sample comparison than the fixed model, not a like-for-like replacement."""
+    """Diagnostic only, not a project method: re-fit a median profile (by hour of week) every Monday on all Jul-Dec 2019
+    actuals before that Monday (expanding window) and forecast that week. It learns from the test period, which the
+    project's methods never do, so it only shows how much an operational weekly refit might change the error."""
     out = []
     mondays = pd.date_range(first_origin, actual.index.max().normalize(), freq="W-MON")
     for monday in mondays:
