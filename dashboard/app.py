@@ -273,25 +273,31 @@ def load_building():
     forecast = pd.DataFrame({c: pd.concat([p["forecast"][c] for p in parts.values()], axis=1).sum(axis=1, min_count=n)
                              for c in ["floor_kW"] + models})
     chosen = {f: p["validation_metrics"]["MAE_kW"].idxmin() for f, p in parts.items()}
-    forecast["Selected per floor"] = pd.concat([parts[f]["forecast"][m] for f, m in chosen.items()], axis=1).sum(axis=1, min_count=n)
+    # When every floor chose the same method, the building's forecast is simply that method summed over the floors, so
+    # it is marked directly; a separate "Selected per floor" row would only duplicate it
+    shared = len(set(chosen.values())) == 1
+    selected = next(iter(chosen.values())) if shared else "Selected per floor"
+    if not shared:
+        forecast[selected] = pd.concat([parts[f]["forecast"][m] for f, m in chosen.items()], axis=1).sum(axis=1, min_count=n)
     data["forecast"] = forecast
     data["peak_threshold"] = (pd.concat([p["baseline_demand"] for p in parts.values()], axis=1)
                               .sum(axis=1, min_count=n).quantile(.9))
-    data["test_metrics"] = forecast_metrics(forecast, models + ["Selected per floor"], data["peak_threshold"])
+    data["test_metrics"] = forecast_metrics(forecast, models + ([] if shared else [selected]), data["peak_threshold"])
     # Apr–Jun 2019 validation predictions, summed the same way (for the error bands; never the test period)
     valids = {f: p["validation_predictions"] for f, p in parts.items()}
     if all(v is not None and chosen[f] in v for f, v in valids.items()):
         common = [c for c in first["validation_predictions"].columns if all(c in v for v in valids.values())]
         valid = pd.DataFrame({c: pd.concat([v[c] for v in valids.values()], axis=1).sum(axis=1, min_count=n) for c in common})
-        valid["Selected per floor"] = pd.concat([valids[f][m] for f, m in chosen.items()], axis=1).sum(axis=1, min_count=n)
+        if not shared:
+            valid[selected] = pd.concat([valids[f][m] for f, m in chosen.items()], axis=1).sum(axis=1, min_count=n)
         data["validation_predictions"] = valid
     else:
         data["validation_predictions"] = None
-    # Only the combination of each floor's validation choice is "selected" for the building
-    data["validation_metrics"] = pd.DataFrame({"MAE_kW": [np.nan]}, index=["Selected per floor"])
-    data["selected_model"] = "Selected per floor"
+    # Only each floor's validation choice (or their combination) is "selected" for the building
+    data["validation_metrics"] = pd.DataFrame({"MAE_kW": [np.nan]}, index=[selected])
+    data["selected_model"] = selected
     data["next24"] = pd.DataFrame({"predicted_kW": sum(p["next24"]["predicted_kW"] for p in parts.values()),
-                                   "method": "Selected per floor"})
+                                   "method": selected})
 
     # Floor energies add up; the building peak needs the summed 15-minute load
     k = pd.DataFrame({f: p["floor_kpis"] for f, p in parts.items()}).T
@@ -1515,10 +1521,16 @@ with tab_forecast:
                      "review period. Ranked by average error on Jul–Dec 2019 (lower = better). The ✓ method is the one to "
                      "use: it had the lowest Apr–Jun error, chosen before this test, which is the fair way to pick one. ")
     if floor == ALL:
-        forecast_help += ("For the whole building, 'Best method per floor (combined)' forecasts each floor with its "
-                          "own chosen method and adds them up: "
-                          + "; ".join(f"Floor {f}: {MODEL_LABELS.get(m, m)}" for f, m in {f: load(f)["validation_metrics"]["MAE_kW"].idxmin() for f in FLOORS}.items())
-                          + ". ")
+        floor_choice = {f: load(f)["validation_metrics"]["MAE_kW"].idxmin() for f in FLOORS}
+        if len(set(floor_choice.values())) == 1:
+            forecast_help += (f"For the whole building, every floor's chosen method is "
+                              f"{MODEL_LABELS.get(selected_model, selected_model)}, so the building forecast is that method "
+                              "on each floor, added up. ")
+        else:
+            forecast_help += ("For the whole building, 'Best method per floor (combined)' forecasts each floor with its "
+                              "own chosen method and adds them up: "
+                              + "; ".join(f"Floor {f}: {MODEL_LABELS.get(m, m)}" for f, m in floor_choice.items())
+                              + ". ")
     forecast_help += ("Peak-hour error = average error in hours at or above the baseline's busiest 10 % level. "
                       "Bias: + means it predicts too "
                       "high on average, − too low. Methods with weather use observed Open-Meteo weather in place of a "
