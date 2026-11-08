@@ -24,6 +24,30 @@ PATTERNS = {
     "supply_group_high": ("Medium", 1.5, "several units high together on one supply"),
 }
 CONFIDENCE_WEIGHTS = {"rules": .35, "duration": .25, "recurrence": .20, "not_weather": .10, "quality": .10}
+HOT_DAY_QUANTILE = 0.9  # a hot day is in the top 10 % of baseline days for its calendar month (as in the notebook)
+
+
+def heat_index_c(temp_c, rh_pct):
+    """Heat index ('feels like', °C) from air temperature (°C) and relative humidity (%), NOAA method: Steadman's
+    simple formula, and the Rothfusz regression where that gives 80 °F or more."""
+    t = np.asarray(temp_c, dtype=float) * 9 / 5 + 32
+    r = np.asarray(rh_pct, dtype=float)
+    simple = 0.5 * (t + 61 + (t - 68) * 1.2 + r * 0.094)
+    full = (-42.379 + 2.04901523 * t + 10.14333127 * r - 0.22475541 * t * r - 6.83783e-3 * t ** 2
+            - 5.481717e-2 * r ** 2 + 1.22874e-3 * t ** 2 * r + 8.5282e-4 * t * r ** 2 - 1.99e-6 * t ** 2 * r ** 2)
+    f = np.where((simple + t) / 2 >= 80, full, simple)
+    return (f - 32) * 5 / 9
+
+
+def hot_days(weather, test_start):
+    """Days whose daytime (08:00-17:00) mean heat index is in the top 10 % for that calendar month among baseline days
+    (before `test_start`). Heat index explains daily AC energy better than temperature (R² 0.59 vs 0.32, Jul–Dec 2019
+    weekdays), because the AC also has to remove humidity."""
+    hi = pd.Series(heat_index_c(weather["outdoor_temp_C"], weather["outdoor_rh_pct"]), index=weather.index)
+    daily = hi[(hi.index.hour >= 8) & (hi.index.hour < 17)].resample("D").mean()
+    base = daily[daily.index < test_start]
+    threshold = pd.Series(daily.index.month, index=daily.index).map(base.groupby(base.index.month).quantile(HOT_DAY_QUANTILE))
+    return pd.DatetimeIndex(daily.index[daily > threshold])
 
 
 def building_closed(dates, open_spec):
@@ -143,6 +167,8 @@ def build_events(d, tariff=DEFAULT_TARIFF_THB, comfort_band=COMFORT_BAND, track_
     f["warm"] = f["indoor_temp_C"].gt(comfort_band[1]) & f["actual_kW"].gt(0.5)
     f["out_of_band"] = ~f["indoor_temp_C"].between(*comfort_band) & f["indoor_temp_C"].notna()
     f["good_data"] = f["observed_minutes"].ge(14) & ~f["has_interpolation"].astype(bool)
+    if "heat_index_C" not in f:  # detail loaded without the dashboard's weather join (e.g. in tests)
+        f["heat_index_C"] = np.nan
     events = f.groupby("run").agg(unit=("unit", "first"), start=("Date", "min"), last=("Date", "max"),
                                   intervals=("Date", "size"), peak_kW=("actual_kW", "max"),
                                   excess_kWh=("excess_kWh_est", "sum"), after_hours=("after_hours", "sum"),
@@ -150,6 +176,7 @@ def build_events(d, tariff=DEFAULT_TARIFF_THB, comfort_band=COMFORT_BAND, track_
                                   quality_share=("good_data", "mean"),
                                   statistical=("statistical", "any"), persistent=("persistent", "any"),
                                   hot_day=("hot_day", "any"), outdoor_C=("outdoor_temp_C", "mean"),
+                                  heat_index_C=("heat_index_C", "mean"),
                                   indoor_C=("indoor_temp_C", "mean"), holiday=("holiday", "any"))
     events["end"] = events["last"] + pd.Timedelta(minutes=15)
     events["duration_h"] = events["intervals"] * INTERVAL_HOURS
@@ -182,7 +209,8 @@ def build_events(d, tariff=DEFAULT_TARIFF_THB, comfort_band=COMFORT_BAND, track_
         if row.statistical:
             parts.append("unusually high for time slot")
         if row.hot_day:
-            parts.append(f"hot day ({row.outdoor_C:.1f} °C outside)")
+            parts.append(f"hot day ({row.outdoor_C:.1f} °C outside" + (f", feels like {row.heat_index_C:.0f} °C)"
+                                                                     if pd.notna(row.heat_index_C) else ")"))
         return "; ".join(parts)
 
     events["reason"] = [why(r) for r in events.itertuples()]

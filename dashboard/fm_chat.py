@@ -42,6 +42,8 @@ any AC running then is waste.
 weather and data quality (and past close-outs). Effort is how hard the fix is: Low = schedule or timer, Medium = \
 inspect, High = repair. Priority: High = the items that together make up the first half of the total triage score, \
 Medium = up to 80%, Low = the rest.
+- Hot day: the daytime (08:00-17:00) heat index ("feels like", from temperature and humidity) is in the top 10% for \
+that month in the baseline year. Extra AC on a hot day may be justified, so hot-day flags get lower confidence.
 - Forecast: day-ahead hourly AC demand, made with data up to the midnight before. Public holidays are forecast as zero.
 - Costs use the dashboard's tariff (returned by the tools; default 4.2 THB/kWh) unless the user gives another.
 

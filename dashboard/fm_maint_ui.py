@@ -124,7 +124,9 @@ def maintenance_tab(c):
                          "Likely fault (demo)": [", ".join(f"{k} {v:.0%}" for k, v in likely_causes(c.store, "warm_running", a, 2).items())
                                                  for a in h.index]})
     st.dataframe(show.sort_values("Health"), hide_index=True, width="stretch", height=35 * len(show) + 38,
-                 column_config={"Health": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.0f"),
+                 column_config={"Health": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.0f", width="small"),
+                                "Efficiency trend": st.column_config.TextColumn(width="medium"),
+                                "Likely fault (demo)": st.column_config.TextColumn(width="medium"),
                                 "Days": st.column_config.NumberColumn(help="Days until the earlier of: 90 days / 500 run hours since "
                                                                            "the last service (assumed intervals) and the efficiency "
                                                                            "trend crossing +15 % kW per °C. Never negative.")})
@@ -189,7 +191,11 @@ def maintenance_tab(c):
         st.plotly_chart(fig, width="stretch", key="log_timeline")
         st.dataframe(view.sort_values("date", ascending=False).assign(Source=lambda x: np.where(x["simulated"].fillna(0).astype(int) == 1, "Simulated", "Real"))
                      [["log_id", "asset_id", "date", "type", "fault_type", "severity", "downtime_h", "cost_THB", "notes", "Source"]],
-                     hide_index=True, width="stretch", height=300)
+                     hide_index=True, width="stretch", height=300, column_config={
+                         "log_id": "Entry", "asset_id": "Asset", "date": st.column_config.DateColumn("Date", format="D MMM YYYY"),
+                         "type": "Type", "fault_type": st.column_config.TextColumn("Fault", width="medium"), "severity": "Severity",
+                         "downtime_h": st.column_config.NumberColumn("Downtime (h)"),
+                         "cost_THB": st.column_config.NumberColumn("Cost (THB)", format="%.0f"), "notes": "Notes"})
     with st.expander("Add an entry"):
         with st.form("log_form"):
             a, b = st.columns(2)

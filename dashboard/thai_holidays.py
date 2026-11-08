@@ -1,12 +1,14 @@
-"""Thai public holidays (government offices) covering the CU-BEMS study period, Jul 2018 – Jan 2020.
+"""Thai public holidays (government offices): a checked list for the CU-BEMS study period, Jul 2018 – Jan 2020, and the
+`holidays` package for later dates, so forecasts can run into future years.
 
 Substitution days (when a holiday falls on a weekend, the next working day is off) are included because offices close
 on those days. Sources: Thai Cabinet holiday announcements for 2018–2020; cross-checked against the dataset, where
-these weekdays show near-zero AC use. Extend the list before using the dashboard on other years.
+these weekdays show near-zero AC use. The package cannot know special holidays the Cabinet announces at short notice:
+add those to CHECKED_HOLIDAYS.
 """
 import datetime as dt
 
-HOLIDAYS = {
+CHECKED_HOLIDAYS = {
     # 2018
     dt.date(2018, 7, 27): "Asahna Bucha Day",
     dt.date(2018, 7, 30): "King's Birthday (substitution for Sat 28 Jul)",
@@ -38,6 +40,24 @@ HOLIDAYS = {
     # 2020
     dt.date(2020, 1, 1): "New Year's Day",
 }
+
+FUTURE_YEARS_AHEAD = 2
+NOT_OFFICE_CLOSURES = ("Labor Day", "Children's Day")  # package entries that government offices work through
+
+
+def future_holidays(last_checked=max(CHECKED_HOLIDAYS)):
+    """Holidays after the checked list, from the `holidays` package; empty if it isn't installed."""
+    try:
+        import holidays
+    except ImportError:
+        return {}
+    years = range(last_checked.year, dt.date.today().year + FUTURE_YEARS_AHEAD + 1)
+    found = holidays.Thailand(years=years, language="en_US")
+    return {day: name for day, name in sorted(found.items())
+            if day > last_checked and not any(skip in name for skip in NOT_OFFICE_CLOSURES)}
+
+
+HOLIDAYS = {**CHECKED_HOLIDAYS, **future_holidays()}
 
 # Weekdays the whole building was closed in the data but that are not official public holidays. Treated as closures,
 # labelled separately so they are not mistaken for gazetted holidays.

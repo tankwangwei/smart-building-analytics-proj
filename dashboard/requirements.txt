@@ -9,3 +9,4 @@ scipy
 gspread>=6.0
 google-auth
 google-genai>=2.33
+holidays>=0.107
