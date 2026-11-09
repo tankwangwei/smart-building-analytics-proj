@@ -102,9 +102,13 @@ def payload(details, zone_loads, summaries, analysed_floors, start, days, runnin
             if whatif:
                 kw_, temp_ = whatif["arrays"][unit]
                 units[-1]["simkw"], units[-1]["simtemp"] = _num(kw_.reindex(slots)), _num(temp_.reindex(slots), 1)
-        # "Normally off" for a floor = no AC unit on that floor is scheduled on (unknown schedule counts as on)
-        sched = fd.pivot_table(index="Date", columns="unit", values="schedule_on", aggfunc="first").reindex(slots)
-        floor_off = sched.eq(False).all(axis=1) & sched.notna().any(axis=1)
+        # Lights "after hours" = the building is closed (opening hours + holidays from the sidebar). Not the AC
+        # schedule: many units are normally off over lunch, and lights on at 11:45 on a working day are not waste.
+        if "closed" in fd:
+            floor_off = fd.groupby("Date")["closed"].any().reindex(slots).fillna(False).astype(bool)
+        else:  # detail without closures (older callers): fall back to "no AC unit scheduled on"
+            sched = fd.pivot_table(index="Date", columns="unit", values="schedule_on", aggfunc="first").reindex(slots)
+            floor_off = sched.eq(False).all(axis=1) & sched.notna().any(axis=1)
         loads = zone_loads.get(floor)
         if loads is not None:
             loads = loads.reindex(slots)

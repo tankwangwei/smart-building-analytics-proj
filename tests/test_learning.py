@@ -4,7 +4,7 @@ import pytest
 
 from brick_model import BrickModel
 from conftest import FLOORS, OPEN_DEFAULT, OUT, read_floor
-from fm_core import build_events, flag_detail
+from fm_core import CLOSED_DATES, build_events, flag_detail
 from fm_incidents import all_events, build_incidents
 from fm_learning import (add_exception, close_out, deactivate_exception, exceptions_tuple, history_note,
                          overall_precision_pct, precision_tables, seed_demo, suggest_exception, threshold_suggestions,
@@ -136,10 +136,25 @@ def test_savings_match_hand_calculation(flagged_floors, world):
     d = flagged_floors[7][flagged_floors[7]["unit"] == "F7_z1_AC4(kW)"]
     fix = pd.Timestamp("2019-10-07")
     v = verify_incident(d, "closed_running", fix, ev[ev["incident_key"] == "F7_Z1_AC4|closed_running"])
-    pre = d[(d["Date"] >= fix - pd.Timedelta(days=28)) & (d["Date"] < fix) & d["after_hours"]]["actual_kW"].sum() * 0.25 / 28
-    post = d[(d["Date"] >= fix) & (d["Date"] < fix + pd.Timedelta(days=28)) & d["after_hours"]]["actual_kW"].sum() * 0.25 / 28
-    assert v["pre_per_day"] == pytest.approx(pre) and v["post_per_day"] == pytest.approx(post)
-    assert v["saved_kWh"] == pytest.approx(max(0, (pre - post) * 28))
+    kwh = (d["actual_kW"] * 0.25).where(d["after_hours"], 0.0).groupby(d["Date"].dt.normalize()).sum()
+    pre_days = pd.date_range(fix - pd.Timedelta(days=28), fix - pd.Timedelta(days=1))
+    post_days = pd.date_range(fix, fix + pd.Timedelta(days=27))
+    pre, post = kwh.reindex(pre_days, fill_value=0), kwh.reindex(post_days, fill_value=0)
+    assert v["pre_per_day"] == pytest.approx(pre.mean()) and v["post_per_day"] == pytest.approx(post.mean())
+    # Adjusted baseline for a schedule fault: the pre-fix average for each day type (open / closed), no weather term
+    closed = lambda days: (days.dayofweek >= 5) | days.isin(CLOSED_DATES)
+    level = pre.groupby(closed(pre_days)).mean()
+    expected = pd.Series(closed(post_days)).map(level).sum()
+    assert not v["weather_adjusted"]
+    assert v["baseline_per_day"] == pytest.approx(expected / 28)
+    assert v["saved_kWh"] == pytest.approx(max(0, expected - post.sum()))
+
+
+def test_weather_pattern_uses_heat_index(flagged_floors):
+    d = flagged_floors[7][flagged_floors[7]["unit"] == "F7_z1_AC4(kW)"]
+    v = verify_incident(d, "high_while_open", pd.Timestamp("2019-10-07"))
+    assert v["weather_adjusted"] and len(v["baseline_series"]) == v["post_days"] == 28
+    assert (v["baseline_series"] >= 0).all() and v["baseline_cv_rmse_pct"] > 0
 
 
 def test_recurrence_reopens(flagged_floors, world):

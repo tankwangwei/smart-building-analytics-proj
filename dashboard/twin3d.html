@@ -71,7 +71,7 @@
     <div class="kpi"><div class="v mono" id="k-plug">-</div><div class="l">Plug loads</div></div>
     <div class="kpi"><div class="v mono" id="k-run">-</div><div class="l">AC running</div></div>
     <div class="kpi"><div class="v mono flag" id="k-flag">-</div><div class="l">AC flagged</div></div>
-    <div class="kpi"><div class="v mono amb" id="k-lah">-</div><div class="l">Lights after hours</div></div>
+    <div class="kpi"><div class="v mono amb" id="k-lah">-</div><div class="l">Lights on while closed</div></div>
     <div class="kpi" id="kw-fc"><div class="v mono" id="k-fc">-</div><div class="l">Forecast now</div></div>
     <div class="kpi" id="kw-saved"><div class="v mono" id="k-saved">-</div><div class="l">Saved so far today</div></div>
     <div class="kpi" id="kw-comfort"><div class="v mono" id="k-comfort">-</div><div class="l">Comfort under proposal</div></div>
@@ -84,7 +84,7 @@
         <option value="status">Anomaly status</option>
         <option value="deviation">AC power vs expected (kW)</option>
         <option value="temp">Indoor temperature (°C)</option>
-        <option value="lah">Lights on after hours</option>
+        <option value="lah">Lights on while closed</option>
       </optgroup>
       <optgroup label="Forecast" id="og-forecast">
         <option value="forecast">Forecast load (kW)</option>
@@ -409,7 +409,7 @@ const METRICS = {
   saved:     { ac: true, title: "Saved (actual − what-if)", unit: "kW", lo: -15, hi: 15, scale: "divrev", note: "Green = saved, red = costs more" },
   simtemp:   { ac: true, title: "What-if indoor temperature", unit: "°C", lo: 18, hi: 31, scale: "temp", note: "Grey = inside the comfort band. A simplification." },
   temp:      { ac: true, title: "Indoor temperature", unit: "°C", lo: 18, hi: 31, scale: "temp", note: "Grey = inside the 23–26 °C comfort band" },
-  lah:       { legend: "swatch", glow: true, items: [["#ffc24b", "Lights on, floor normally off"], ["#8c93a3", "Lights on, normal hours"], ["#2a2f3b", "Lights off"]] },
+  lah:       { legend: "swatch", glow: true, items: [["#ffc24b", "Lights on, building closed"], ["#8c93a3", "Lights on, opening hours"], ["#2a2f3b", "Lights off"]] },
   // Same colours as the Floors dots on the dashboard Overview; does not change as the replay plays
   level:     { ac: true, period: true, legend: "swatch", key: "level",
                items: [["#e5533d", "High priority"], ["#f0a03c", "Medium"], ["#3fb27f", "Low"]] },
@@ -644,7 +644,7 @@ function zoneSummary(f, z, i, withTitle = true) {
   }
   if (zl) {
     const l = val(zl.light, i);
-    h += `Lighting ${fmt(l, 2, " kW")}${l != null && l >= LIGHT_ON_KW && zl.offHours[i] ? ' <span class="amb">(after hours)</span>' : ""} · plugs ${fmt(val(zl.plug, i), 2, " kW")}`;
+    h += `Lighting ${fmt(l, 2, " kW")}${l != null && l >= LIGHT_ON_KW && zl.offHours[i] ? ' <span class="amb">(building closed)</span>' : ""} · plugs ${fmt(val(zl.plug, i), 2, " kW")}`;
     if (zl.lux) h += ` · daylight ${fmt(val(zl.lux, i), 0, " lux")}`;
   }
   return h;

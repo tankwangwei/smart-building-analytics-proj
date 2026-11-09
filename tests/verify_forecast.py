@@ -73,6 +73,7 @@ def test_metrics_reproduce(f):
     p = pred(f)
     stored = pd.read_csv(OUT / f"floor_{f}" / "forecast_test_metrics.csv", index_col=0)
     models = [c for c in p.columns if c != "floor_kW"]
+    p.loc[p.index.normalize().isin(CLOSED_DATES), models] = 0.0  # holidays are scored as forecast zero, as in the notebook
     common = p[["floor_kW"] + models].dropna()  # same rule as the notebook: hours where every model has a value
     for model in stored.index:
         m = metrics(common["floor_kW"], common[model])

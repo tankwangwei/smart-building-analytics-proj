@@ -7,11 +7,17 @@ import pandas as pd
 NMBE_LIMIT, CV_LIMIT = 10.0, 30.0
 
 
-def error_metrics(actual, forecast):
-    err = forecast - actual
-    rmse = np.sqrt((err ** 2).mean())
-    return {"MAE_kW": err.abs().mean(), "RMSE_kW": rmse, "NMBE_pct": 100 * err.mean() / actual.mean(),
-            "CV_RMSE_pct": 100 * rmse / actual.mean()}
+ASHRAE_P = 1  # parameter count p in the Guideline 14 formulas; out-of-sample scoring, so p = 1 (as in the notebook)
+
+
+def error_metrics(actual, forecast, p=ASHRAE_P):
+    """MAE, RMSE, and NMBE and CV(RMSE) in ASHRAE Guideline 14 form: residual = measured − predicted, so a positive NMBE
+    means the forecast is too low; both divide by (n − p)."""
+    residual = actual - forecast
+    n, mean = len(residual), actual.mean()
+    return {"MAE_kW": residual.abs().mean(), "RMSE_kW": np.sqrt((residual ** 2).mean()),
+            "NMBE_pct": 100 * residual.sum() / ((n - p) * mean),
+            "CV_RMSE_pct": 100 * np.sqrt((residual ** 2).sum() / (n - p)) / mean}
 
 
 def ashrae_rows(actual, forecast):

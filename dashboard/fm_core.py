@@ -153,7 +153,12 @@ def confidence_components(events, all_events):
     slot = events["unit"] + "|" + events["start"].dt.dayofweek.astype(str) + "|" + events["start"].dt.hour.astype(str)
     counts = slot.map(slot.value_counts())
     recurrence = counts.map({1: 0.0, 2: 0.5}).fillna(1.0)
-    not_weather = np.where(events["hot_day"], 0.4, 1.0)
+    # Expected power is already weather-adjusted, so a hot day only lowers confidence a little, and only for flags
+    # while the unit should be running anyway (the linear heat adjustment may not catch it all). Running while closed
+    # or off-schedule is not excused by heat.
+    weather_sensitive = (events["pattern"].isin(["high_while_open", "warm_running", "supply_group_high"])
+                         if "pattern" in events else True)
+    not_weather = np.where(events["hot_day"] & weather_sensitive, 0.4, 1.0)
     return pd.DataFrame({"rules": rules, "duration": duration, "recurrence": recurrence,
                          "not_weather": not_weather, "quality": events["quality_share"]}, index=events.index)
 
@@ -210,19 +215,19 @@ def build_events(d, tariff=DEFAULT_TARIFF_THB, comfort_band=COMFORT_BAND, track_
     events["triage_score"] = events["excess_THB"] * events["confidence"] / 100 / events["effort_factor"]
 
     def why(row):
+        """The rules that fired, in a few words. A hot day is not a reason to flag (it is a possible explanation),
+        so it lives in its own hot_day column instead."""
         parts = []
         if row.holiday:
-            parts.append(f"on a closure day: {closure_name(row.start.date())}")
+            parts.append(f"Closure day ({closure_name(row.start.date())})")
         if row.after_hours_h:
-            parts.append(f"after hours {row.after_hours_h:g} h (building closed or unit normally off)")
-        if row.persistent:
-            parts.append("persistent ≥ threshold")
+            where = "On while closed" if row.closed_share >= .5 else "On outside usual hours"
+            parts.append(f"{where} ({row.after_hours_h:g} h)")
         if row.statistical:
-            parts.append("unusually high for time slot")
-        if row.hot_day:
-            parts.append(f"hot day ({row.outdoor_C:.1f} °C outside" + (f", feels like {row.heat_index_C:.0f} °C)"
-                                                                     if pd.notna(row.heat_index_C) else ")"))
-        return "; ".join(parts)
+            parts.append("Unusually high for the time")
+        if row.persistent:
+            parts.append("Stayed above normal")
+        return " · ".join(parts)
 
     events["reason"] = [why(r) for r in events.itertuples()]
     events = events.sort_values("triage_score", ascending=False).reset_index(drop=True)

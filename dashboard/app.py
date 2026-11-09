@@ -20,7 +20,7 @@ import fm_maint_ui
 import fm_tabs
 import twin
 from brick_model import SUPPLY_NOTE, get_model
-from forecast_checks import ashrae_rows, breakdowns, interval_bounds
+from forecast_checks import ashrae_rows, breakdowns, error_metrics, interval_bounds
 from fm_asset import monthly_kw_per_degc
 from fm_health import attach_risk, fault_risk_model, fleet_health, likely_causes, peer_weekly, seed_maintenance
 from fm_incidents import STATUS_COLOUR, all_events, build_incidents
@@ -29,7 +29,8 @@ from fm_sim import Settings, prepare, settings_from_state, simulate_series, summ
 from fm_store import get_store
 from fm_twin import unit_forecasts
 from fm_core import (CLOSED_DATES, COMFORT_BAND, DEFAULT_TARIFF_THB, INTERVAL_HOURS, PATTERNS, PRIORITY_LEVELS, add_levels,
-                     build_events, building_closed, flag_detail, heat_index_c, hot_days, priority_levels, shift_profile)
+                     build_events, building_closed, flag_detail, heat_index_c, hot_days, priority_levels,
+                     HOT_DAY_QUANTILE)
 from thai_holidays import HOLIDAYS, OBSERVED_CLOSURES, closure_name
 
 ROOT = Path(os.environ.get("AC_OUTPUT_FOLDER", Path(__file__).resolve().parents[1] / "ac_analysis_outputs"))
@@ -38,8 +39,10 @@ ALL = "all"  # selector value for the whole-building view
 DEFAULT_SCOPE = ALL
 SCOPE = None  # set from the sidebar; unit labels include the floor in the whole-building view
 TEST_START = pd.Timestamp("2019-07-01")
-WEATHER_MODEL = "M1 + weather"
-HEAT_MODEL = "M1 + heat index (weather)"
+# Weather-shifted typical weekly patterns, fitted in the notebook like every other method
+TEMP_MODEL = "M7 median profile + temperature"
+HEAT_MODEL = "M8 median profile + heat index"
+WEATHER_MODELS = {"M5 regression + heat index", "M6 Random Forest + heat index", TEMP_MODEL, HEAT_MODEL}
 
 # Roles, not ranks: the same colour always means the same thing on every chart.
 ACTUAL = "#2a78d6"
@@ -52,9 +55,9 @@ DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 MODEL_LABELS = {"M0 yesterday": "Same hour yesterday", "M0 last week": "Same hour last week",
                 "M1 median profile": "Typical weekly pattern", "M2 calendar regression": "Time-based regression",
                 "M3 regression with lags": "Regression + past demand", "M4 Random Forest": "Random Forest",
-                "M5 regression + weather": "Regression + past demand + weather",
-                "M6 Random Forest + weather": "Random Forest + weather",
-                WEATHER_MODEL: "Typical weekly pattern + weather",
+                "M5 regression + heat index": "Regression + past demand + heat index",
+                "M6 Random Forest + heat index": "Random Forest + heat index",
+                TEMP_MODEL: "Typical weekly pattern + temperature",
                 HEAT_MODEL: "Typical weekly pattern + heat index",
                 "Selected per floor": "Best method per floor (combined)"}
 
@@ -80,6 +83,15 @@ h3 {font-size: 1.05rem !important; line-height: 1.45 !important; padding: 1rem 0
 [data-testid="stDataFrame"], [data-testid="stPlotlyChart"], iframe {border-radius: 14px;}
 .card-h {font-size: 1rem; font-weight: 600; margin-bottom: .4rem;}
 .card-f {font-size: .8rem; color: #9fb0cc; text-align: right; margin-top: .3rem;}
+.mode-banner {font-size: .85rem; color: #c9d6ea; padding: .5rem .9rem; border-radius: 10px; margin: .1rem 0 .2rem;
+               border: 1px solid rgba(140,170,220,.18); border-left: 4px solid var(--mode);}
+.mode-banner.op {--mode: #1baf7a; background: rgba(27,175,122,.08);}
+.mode-banner.rv {--mode: #5aa9ff; background: rgba(90,169,255,.08);}
+.mode-banner b {color: #e8eef9;}
+.st-key-tf-controls [data-testid="stButtonGroup"] button {min-height: 40px;}
+.page-note {font-size: .82rem; color: #9fb0cc; margin: -.2rem 0 .3rem;}
+.page-note .switch {color: #c9d6ea; margin-left: .3rem;}
+.page-note .sim {font-size: .68rem; padding: 1px 7px; border-radius: 999px; border: 1px solid #f0a03c; color: #f0a03c;}
 .kpis {display: flex; gap: 14px 30px; flex-wrap: wrap; justify-content: center; margin: .3rem 0 .9rem;}
 .kpi {display: flex; align-items: center; gap: 10px; min-width: 0;}
 .ico {width: 40px; height: 40px; flex: none; border-radius: 50%; border: 1.5px solid rgba(230,237,247,.55);
@@ -234,35 +246,9 @@ def forecast_metrics(table, models, peak_threshold):
     common = table[["floor_kW"] + models].dropna()
     actual = common["floor_kW"]
     peak = actual >= peak_threshold
-    rows = []
-    for m in models:
-        error = common[m] - actual
-        rmse = np.sqrt(np.mean(error ** 2))
-        rows.append({"model": m, "hours": len(common), "MAE_kW": error.abs().mean(), "RMSE_kW": rmse,
-                     "NMBE_pct": 100 * error.mean() / actual.mean(), "CV_RMSE_pct": 100 * rmse / actual.mean(),
-                     "peak_hour_MAE_kW": error.loc[peak].abs().mean()})
+    rows = [{"model": m, "hours": len(common), **error_metrics(actual, common[m]),
+             "peak_hour_MAE_kW": (common[m] - actual).loc[peak].abs().mean()} for m in models]
     return pd.DataFrame(rows).set_index("model").sort_values("MAE_kW")
-
-
-def shift_m1(forecast, x, slope):
-    """The typical weekly pattern shifted by weather (fm_core.shift_profile), with reference levels from before Jul 2019."""
-    return shift_profile(forecast["M1 median profile"], x, slope, TEST_START)
-
-
-def add_weather_model(forecast, weather, sensitivity, test_metrics, peak_threshold, heat_index_slope=None):
-    """Weather-adjusted versions of the typical weekly pattern. Observed weather stands in for a weather forecast.
-
-    - Temperature: the slope is the sum of the floor's per-unit regression slopes (kW per °C outdoor).
-    - Heat index: the floor's kW per °C of heat index, fitted on the baseline year by fit_heat_index.py. Added only
-      when that file exists. Heat index tracks AC load better in humid Bangkok, because the AC also removes moisture."""
-    forecast[WEATHER_MODEL] = shift_m1(forecast, weather["outdoor_temp_C"],
-                                       sensitivity["kW_per_degC_outdoor"].clip(lower=0).sum())
-    added = [WEATHER_MODEL]
-    if heat_index_slope is not None and pd.notna(heat_index_slope):
-        forecast[HEAT_MODEL] = shift_m1(forecast, weather["heat_index_C"], max(0.0, heat_index_slope))
-        added.append(HEAT_MODEL)
-    models = [c for c in forecast.columns if c != "floor_kW"]
-    return forecast, pd.concat([test_metrics, forecast_metrics(forecast, models, peak_threshold).loc[added]])
 
 
 @st.cache_data(show_spinner="Combining all floors…")
@@ -332,8 +318,6 @@ def load_floor(floor):
     detail["schedule_on"] = to_bool(detail["schedule_on"])  # True / False / NaN (unknown)
     weather = pd.read_csv(OUT / "weather_hourly_local.csv", index_col=0, parse_dates=True)
     weather["heat_index_C"] = heat_index_c(weather["outdoor_temp_C"], weather["outdoor_rh_pct"])
-    # Hot days by heat index rather than the notebook's temperature-only rule (same top-10 %-per-month threshold)
-    detail["hot_day"] = detail["Date"].dt.normalize().isin(hot_days(weather, TEST_START))
     detail["heat_index_C"] = detail["Date"].dt.floor("h").map(weather["heat_index_C"])
     data = {"detail": detail,
             "thresholds": pd.read_csv(OUT / "anomaly_unit_thresholds.csv", index_col=0),
@@ -355,27 +339,6 @@ def load_floor(floor):
                                                    parse_dates=True)
                                        if (OUT / "forecast_validation_predictions.csv").exists() else None)}
     data["peak_threshold"] = data["baseline_demand"].quantile(.9)
-    hi_file = ROOT / "heat_index_sensitivity.csv"  # from fit_heat_index.py
-    hi_slope = (pd.read_csv(hi_file, index_col=0)["kW_per_degC_heat_index"].get(int(floor))
-                if hi_file.exists() else None)
-    data["forecast"], data["test_metrics"] = add_weather_model(
-        data["forecast"], data["weather"], data["sensitivity"], data["test_metrics"], data["peak_threshold"], hi_slope)
-    hi_pred_file = ROOT / "heat_index_validation_predictions.csv"
-    if data["validation_predictions"] is not None and HEAT_MODEL in data["forecast"] and hi_pred_file.exists():
-        data["validation_predictions"][HEAT_MODEL] = pd.read_csv(hi_pred_file, index_col=0, parse_dates=True)[
-            f"floor_{floor}"].reindex(data["validation_predictions"].index)
-    # The heat-index method's Apr–Jun 2019 score (fit_heat_index.py, fitted on Jul 2018 – Mar 2019 like the notebook's
-    # methods), so validation can choose it; its next-day demonstration replaces the notebook's when it is chosen
-    hi_valid_file = ROOT / "heat_index_validation_metrics.csv"
-    if HEAT_MODEL in data["forecast"] and hi_valid_file.exists():
-        scores = pd.read_csv(hi_valid_file, index_col=0)
-        if int(floor) in scores.index:
-            row = scores.loc[[int(floor)]].set_index("model")[data["validation_metrics"].columns.intersection(scores.columns)]
-            data["validation_metrics"] = pd.concat([data["validation_metrics"], row]).sort_values("MAE_kW")
-            demo_file = ROOT / "heat_index_next_24_hours.csv"
-            if data["validation_metrics"].index[0] == HEAT_MODEL and demo_file.exists():
-                demo = pd.read_csv(demo_file, index_col=0, parse_dates=True)[f"floor_{floor}"]
-                data["next24"] = data["next24"].assign(predicted_kW=demo.reindex(data["next24"].index), method=HEAT_MODEL)
     return data
 
 
@@ -387,7 +350,7 @@ def flags_for(floor, k_iqr, k_res, on_kw, persist, use_stat, use_after, use_pers
 
 
 ISSUE_SHORT = {"closed_running": "Runs while closed", "off_schedule": "Runs outside its schedule",
-               "high_while_open": "Runs high while open", "warm_running": "Runs, room stays warm",
+               "high_while_open": "Above normal in open hours", "warm_running": "Runs, room stays warm",
                "supply_group_off": "Units off together", "supply_group_high": "Units high together"}
 
 
@@ -435,7 +398,7 @@ def unit_priority(d, events, days):
 
 
 CONFIDENCE_HELP = ("0–100 from five signals: how many of the three rules agree (35%), how long it lasted (25%), whether it "
-                   "repeats at the same weekday and hour (20%), whether it is not just a hot day (10%) and data quality "
+                   "repeats at the same weekday and hour (20%), whether it is not on a hot day (10%; open-hours flags only, since expected power already allows for the heat) and data quality "
                    "(10%). High ≥ 70 · Medium 40–69 · Low < 40.")
 TRIAGE_HELP = ("Triage score = excess THB × confidence ÷ effort. Effort is how hard the fix is: Low = schedule or timer, "
                "Medium = inspect, High = repair. Priority: 🔴 High = the top items that together make up half of the "
@@ -447,7 +410,7 @@ PRIORITY_COLUMNS = {
     "priority_level": st.column_config.TextColumn("Priority", help=TRIAGE_HELP),
     "share_pct": st.column_config.NumberColumn("Share of score", format="%.0f%%",
                                                help="This item's share of the total triage score in the table."),
-    "flagged_excess_kWh": st.column_config.NumberColumn("Excess kWh", format="%.0f",
+    "flagged_excess_kWh": st.column_config.NumberColumn("Excess (kWh)", format="%.0f",
                                                         help="Energy above the unit's normal pattern during flagged periods (estimate)."),
     "excess_THB": st.column_config.NumberColumn("Excess THB", format="%.0f",
                                                 help="Excess kWh × the electricity price (sidebar → Advanced). An estimate."),
@@ -550,19 +513,40 @@ data_first, data_last = detail_all["Date"].min().date(), detail_all["Date"].max(
 # ---------------------------------------------------------------- header with the timeframe picker
 # The timeframe drives every total on every tab ('normal' is always learned from Jul 2018 – Jun 2019, and forecast
 # accuracy is always scored on Jul–Dec 2019). It sits above the tabs so it is visible wherever you are.
-head, tf_mode_col, tf_date_col = st.columns([3.2, 1.7, 1], vertical_alignment="bottom")
+# Two modes. Operate replays one past day as if it were today (what an FM sees that morning); Review looks back over a
+# week, month or Jul–Dec. A click on a day in the Review overview jumps to Operate on that day: applied here, before
+# the widgets exist, because a widget's state cannot change after it is drawn.
+_jump = st.session_state.pop("jump_to_day", None)
+if _jump is not None:
+    st.session_state["app_mode"], st.session_state["tf_date"] = "Operate", _jump
+head, controls = st.columns([1, 1.05], vertical_alignment="bottom")
+# One tight, right-aligned group so the three controls read as a single picker rather than three floating widgets.
+controls = controls.container(horizontal=True, horizontal_alignment="right", vertical_alignment="bottom", gap="small",
+                              key="tf-controls")
+mode_col = tf_mode_col = tf_date_col = controls
 head.title("Chamchuri 5 · AC energy monitor",
            help="Where is air-conditioning energy wasted, and what load should we plan for? Flags are potential anomalies "
                 "for review, not diagnosed faults. kWh and THB figures are estimates, not verified savings. Normal "
                 "patterns are learned from Jul 2018 – Jun 2019. Data: CU-BEMS (Chulalongkorn University, Bangkok); "
                 "weather: Open-Meteo.")
-tf_mode = tf_mode_col.segmented_control(
-    "Timeframe", ["Day", "Week", "Month", "Jul–Dec"], default="Day", key="tf_mode",
-    help="Every number, colour and alert on every tab is worked out for this timeframe. Week = Monday to Sunday and "
-         "Month = the calendar month around the date you pick.") or "Jul–Dec"
+app_mode = mode_col.segmented_control(
+    "Mode", ["Operate", "Review"], default="Operate", key="app_mode", width="content",
+    help="**Operate** replays one past day as if it were today: alerts, tomorrow's forecast and the work-order queue. "
+         "With a live building-management feed it would simply track the current date.\n\n**Review** looks back over a "
+         "week, a month or Jul–Dec: rank problems, compare floors and check whether fixes worked.") or "Operate"
+OPERATE = app_mode == "Operate"
+if OPERATE:
+    tf_mode = "Day"
+else:
+    tf_mode = tf_mode_col.segmented_control(
+        "Review period", ["Week", "Month", "Jul–Dec"], default="Month", key="tf_period", width="content",
+        help="Week = Monday to Sunday and Month = the calendar month around the date you pick.") or "Jul–Dec"
 default_day = min(max(pd.Timestamp("2019-07-27").date(), data_first), data_last)  # a Saturday with clear issues
-tf_anchor = pd.Timestamp(tf_date_col.date_input("Date", default_day, min_value=data_first, max_value=data_last,
-                                                format="DD/MM/YYYY", key="tf_date", disabled=tf_mode == "Jul–Dec"))
+tf_anchor = pd.Timestamp(tf_date_col.date_input("Today is" if OPERATE else "Period around", default_day,
+                                                min_value=data_first, max_value=data_last, format="DD/MM/YYYY",
+                                                key="tf_date", disabled=tf_mode == "Jul–Dec", width=170,
+                                                help="The replay date: the dashboard acts as if this were today."
+                                                if OPERATE else None))
 if tf_mode == "Day":
     period_start = tf_anchor
     period_end = period_start + pd.Timedelta(days=1)
@@ -581,10 +565,23 @@ PERIOD = {"Day": f"{period_start:%a %d %b %Y}", "Month": f"{period_start:%B %Y}"
     tf_mode, f"{period_start:%d %b} – {period_end - pd.Timedelta(days=1):%d %b %Y}")
 scope_desc = (f"Floors {', '.join(map(str, FLOORS[:-1]))} and {FLOORS[-1]} · {len(units)} AC units" if floor == ALL
               else f"{SCOPE_NAME} · {len(units)} AC units")
-st.caption(f"**{scope_desc}** · **{period_start:%a %d %b %Y}"
-           + (f" – {period_end - pd.Timedelta(days=1):%a %d %b %Y}" if PERIOD_DAYS > 1 else "")
-           + f"** ({PERIOD_DAYS} day{'s' if PERIOD_DAYS > 1 else ''})"
-           + (f" · 🎌 **{closure_name(period_start.date())}**" if PERIOD_DAYS == 1 and closure_name(period_start.date()) else ""))
+SPAN = "today" if OPERATE else {"Week": "this week", "Month": "this month"}.get(tf_mode, "Jul–Dec")
+_holiday = closure_name(period_start.date()) if OPERATE else None
+if OPERATE:
+    _banner = (f'<b>▶ Operate</b> · replay: acting as if today is <b>{period_start:%a %d %b %Y}</b>'
+               + (f" · 🎌 {_holiday}" if _holiday else "") + f' · {scope_desc} · historical CU-BEMS data, not live '
+               f'(with a live building-management feed this would be the current day)')
+else:
+    _range = "" if tf_mode == "Week" else f", {period_start:%d %b} – {period_end - pd.Timedelta(days=1):%d %b %Y}"
+    _banner = (f'<b>◷ Review</b> · <b>{PERIOD}</b> ({PERIOD_DAYS} days{_range}) · {scope_desc} · '
+               f'looking back over the period')
+st.markdown(f'<div class="mode-banner {"op" if OPERATE else "rv"}">{_banner}</div>', unsafe_allow_html=True)
+
+
+def page_note(text, switch_to=None):
+    """One line under the banner saying what this page does in the current mode (and where the other half lives)."""
+    extra = f' <span class="switch">→ switch to <b>{switch_to}</b> at the top</span>' if switch_to else ""
+    st.markdown(f'<div class="page-note">{text}{extra}</div>', unsafe_allow_html=True)
 
 with st.sidebar:
     with st.expander("Building Opening Hours"):
@@ -691,7 +688,18 @@ DETAILS_FULL = {f: flags_for(f, k_iqr, k_res, on_kw, persist, use_stat, use_afte
 VERIF = verification_results(STORE, EV_FULL, DETAILS_FULL, BRICK_UNITS, TARIFF_THB)  # also verifies/reopens resolved ones
 INC_ALL = build_incidents(EV_FULL, STORE.table("incident_state"), (period_start, period_end))
 INC = INC_ALL if floor == ALL else INC_ALL[INC_ALL["floor"].eq(floor)]
-VERIFIED_KWH = sum(v["saved_kWh"] for k, v in VERIF.items() if v["verdict"] == "Verified")
+
+def verif_floor(key):
+    """Floor of an incident key: 'F7_Z1_AC4|…' or a supply group 'Floor7_CHW_assumed|…'."""
+    return int(re.match(r"F(?:loor)?(\d+)", key)[1])
+
+
+# Fixes in scope: fix date inside the selected timeframe and on the selected floor. Each fix is still measured over its
+# own 28 days before and after, which can run past the timeframe; the saving is credited to the fix date.
+VERIF_SCOPE = {k: v for k, v in VERIF.items() if period_start <= v["fix_date"] < period_end
+               and (floor == ALL or verif_floor(k) == floor)}
+VERIFIED_KWH = sum(v["saved_kWh"] for v in VERIF_SCOPE.values() if v["verdict"] == "Verified")
+N_VERIFIED = sum(v["verdict"] == "Verified" for v in VERIF_SCOPE.values())
 
 # When the waste happens (flagged excess kWh by type of time)
 flag_rows = d.loc[d["flagged"]]
@@ -785,6 +793,8 @@ if NEXT_CLOSURE:
     n24["predicted_kW"] = 0.0
     n24_note = f"public holiday ({NEXT_CLOSURE}), so the building is expected closed"
 HAS_ACTUAL = n24["actual_kW"].notna().any()
+# Operate never peeks at tomorrow unless asked (toggle on the Forecast tab); Review may always compare
+SHOW_ACTUAL = HAS_ACTUAL and (not OPERATE or bool(st.session_state.get("show_actual", False)))
 peak_time, peak_kw = n24["predicted_kW"].idxmax(), n24["predicted_kW"].max()
 _common = fc[["floor_kW", selected_model]].dropna()
 error_by_hour = (_common[selected_model] - _common["floor_kW"]).abs().groupby(_common.index.hour).mean()
@@ -828,7 +838,8 @@ FM_CTX = SimpleNamespace(
     store=STORE, inc=INC, inc_all=INC_ALL, events=EV_FULL, period=PERIOD, actor="dashboard user", brick=brick_model(),
     col_of=COL_OF, as_of=period_end - pd.Timedelta(days=1), open_spec=OPEN, forecasts=floor_forecasts(),
     likely_causes=lambda pattern, asset: likely_causes(STORE, pattern, asset), chart_for_incident=incident_chart,
-    days=DAYS, k_iqr=k_iqr, tariff=TARIFF_THB, verif=VERIF, verified_kwh=VERIFIED_KWH, units=BRICK_UNITS, details=DETAILS_FULL,
+    days=DAYS, k_iqr=k_iqr, tariff=TARIFF_THB, verif=VERIF_SCOPE, verified_kwh=VERIFIED_KWH,
+    n_verified=N_VERIFIED, operate=OPERATE, page_note=page_note, scope_name="the whole building" if floor == ALL else f"Floor {floor}", units=BRICK_UNITS, details=DETAILS_FULL,
     allunits=allunits, peer_groups=brick_model().peer_groups(), on_kw=on_kw, health=HEALTH, risk_metrics=RISK_METRICS,
     label_of=dict(zip(INC_ALL["asset_id"], INC_ALL["label"])), style=style,
     colours={"muted": MUTED, "actual": ACTUAL, "expected": EXPECTED})
@@ -853,7 +864,7 @@ PRIORITY_HELP = TRIAGE_HELP
 def next_day_chart(height):
     fig = go.Figure(go.Scatter(x=n24.index, y=n24["predicted_kW"], mode="lines+markers",
                                line=dict(color=ACTUAL, width=2), marker=dict(size=6), name="Forecast"))
-    if HAS_ACTUAL:
+    if SHOW_ACTUAL:
         fig.add_trace(go.Scatter(x=n24.index, y=n24["actual_kW"], mode="lines", name="Actual",
                                  line=dict(color=EXPECTED, width=2, dash="dash")))
     fig.add_annotation(x=peak_time, y=peak_kw, text=f"Peak {peak_time:%H:%M}: {peak_kw:.0f} kW", showarrow=True, arrowhead=2)
@@ -957,6 +968,20 @@ outdoor_mean, rh_mean, feels_mean = (weather_now[c].mean() for c in ("outdoor_te
 HOT_DAYS = hot_days(data["weather"], TEST_START)  # by heat index; same days the flagging rules treat as hot
 _hi = data["weather"]["heat_index_C"]
 DAY_FEELS = _hi[(_hi.index.hour >= 8) & (_hi.index.hour < 17)].resample("D").mean()  # daytime feels-like per day
+# Hot-day cut-off per calendar month: the top 10 % of baseline days (Jul 2018 – Jun 2019), as hot_days() uses
+_base_feels = DAY_FEELS[DAY_FEELS.index < TEST_START]
+HOT_CUTOFF = _base_feels.groupby(_base_feels.index.month).quantile(HOT_DAY_QUANTILE)
+HOT_DAY_TEXT = ("**Hot day** = daytime (08:00–17:00) feels-like in the top 10% for its month, "
+                "judged against Jul 2018 – Jun 2019.")
+
+
+def hot_cutoff_text(months):
+    """'Jul 35.7 · Aug 35.1' (°C) for the months shown."""
+    return " · ".join(f"{pd.Timestamp(2019, m, 1):%b} {HOT_CUTOFF[m]:.1f}" for m in months if m in HOT_CUTOFF)
+
+
+HOT_DAY_HELP = (HOT_DAY_TEXT + "\n\nCut-offs (°C): " + hot_cutoff_text(range(7, 13))
+                + "\n\nContext, not a reason to flag: expected power already allows for the heat.")
 hot_in_period = HOT_DAYS[(HOT_DAYS >= period_start) & (HOT_DAYS < period_end)]
 
 # 15-minute detail for the floors in view, within the timeframe, plus the whole building (for "is the rest running?")
@@ -1092,32 +1117,99 @@ def assistant_findings():
     for u, c in coverage[coverage.lt(.95)].sort_values().head(1).items():
         add("Info", "bell", f"{short(u)} missing {100 * (1 - c):.0f}% of readings", "check the meter",
             "Check the meter and its connection; flags for this unit may be incomplete.", "Priority list", 1 - c)
-    actual_peak = f"; the actual peak was {n24['actual_kW'].max():.0f} kW" if HAS_ACTUAL else ""
-    if NEXT_CLOSURE:
-        add("Info", "peak", f"Next day ({next_day:%a %d %b}) is a public holiday", "expect the building closed",
-            f"{NEXT_CLOSURE}. The forecast expects no AC load{actual_peak}. Check that timers are off.", "Forecast", 0)
+    actual_peak = f"; the actual peak was {n24['actual_kW'].max():.0f} kW" if HAS_ACTUAL and SHOW_ACTUAL else ""
+    if not OPERATE:  # tomorrow's load is a planning item for Operate, not part of looking back
+        pass
+    elif NEXT_CLOSURE or peak_kw < 1:
+        why = NEXT_CLOSURE or f"{next_day:%A}: the building is normally closed"
+        add("Info", "peak", f"Tomorrow ({next_day:%a %d %b}) the building is closed", "check that timers are off",
+            f"{why}. The forecast expects no AC load{actual_peak}. Any AC that runs would be waste.", "Forecast", 0)
     else:
         hot_next = next_day in HOT_DAYS
         feels = DAY_FEELS.get(next_day)
-        add("Info", "peak", f"Next day ({peak_time:%a %d %b}) peak ≈ {peak_kw:.0f} kW at {peak_time:%H:%M}",
+        add("Info", "peak", f"Tomorrow ({peak_time:%a %d %b}) peak ≈ {peak_kw:.0f} kW at {peak_time:%H:%M}",
             f"hot day, feels like {feels:.0f} °C · expect a higher load" if hot_next else "stagger the start-up",
-            f"Day-ahead forecast for the day after this timeframe{actual_peak}. "
-            + (f"It is a hot day (daytime feels like {feels:.0f} °C, top 10% for the month), so load may run above the "
+            f"Day-ahead forecast for tomorrow{actual_peak}. "
+            + (f"It is a hot day (daytime feels like {feels:.0f} °C, above this month's cut-off of {HOT_CUTOFF.get(next_day.month, np.nan):.1f} °C), so load may run above the "
                "forecast. " if hot_next else "") + "Stagger the start-up to flatten the peak.",
             "Forecast", 0)
     return sorted(found, key=lambda x: x["rank"])
 
 
+def daily_summary():
+    """Per day in the period (scope units): AC energy, flagged excess and the normal (expected) energy, kWh."""
+    day = d["Date"].dt.normalize()
+    out = pd.DataFrame({"kWh": (d["actual_kW"] * INTERVAL_HOURS).groupby(day).sum(min_count=1),
+                        "excess": d["excess_kWh_est"].where(d["flagged"], 0.0).groupby(day).sum(),
+                        "expected": (d["expected_kW"] * INTERVAL_HOURS).groupby(day).sum(min_count=1)})
+    return out.reindex(pd.date_range(period_start, period_end - pd.Timedelta(days=1)))
+
+
+def worst_day():
+    s = daily_summary()["excess"]
+    return s.idxmax().date() if s.notna().any() and s.max() > 0 else period_start.date()
+
+
+def period_summary_chart():
+    """Review overview: daily AC energy with the flagged excess on top, the normal level, hot days and closures.
+    Clicking a bar replays that day in Operate."""
+    s = daily_summary()
+    normal_part = (s["kWh"] - s["excess"]).clip(lower=0)
+    st.markdown("**Day by day**", help="Each bar is one day's AC energy for the selected units. Red = flagged excess "
+                                       "above normal; dashed line = the normal (expected) energy for that day, learned "
+                                       "from Jul 2018 – Jun 2019 and adjusted for the weather.\n\n"
+                                       "☀ " + HOT_DAY_TEXT + "\n\nGrey band = public holiday or closure.\n\n"
+                                       "Click a bar to replay that day in Operate.")
+    # The hot-day note rides on the day's own bar hover, so it never shows up against a neighbouring day
+    hot_note = ["<br>☀ hot day, feels like " + f"{DAY_FEELS.get(t, np.nan):.0f} °C" if t in HOT_DAYS else "" for t in s.index]
+    fig = go.Figure()
+    fig.add_bar(x=s.index, y=normal_part, name="AC energy", marker_color=ACTUAL, customdata=hot_note,
+                hovertemplate="%{x|%a %d %b}: %{y:,.0f} kWh within normal%{customdata}<extra></extra>")
+    fig.add_bar(x=s.index, y=s["excess"], name="Flagged excess", marker_color=FLAG,
+                hovertemplate="%{x|%a %d %b}: %{y:,.0f} kWh flagged<extra></extra>")
+    fig.add_scatter(x=s.index, y=s["expected"], name="Normal", mode="lines", line=dict(color=EXPECTED, dash="dash", width=2),
+                    hovertemplate="%{x|%a %d %b}: normal %{y:,.0f} kWh<extra></extra>")
+    hot = [t for t in s.index if t in HOT_DAYS]
+    if hot:
+        fig.add_scatter(x=hot, y=s.loc[hot, "kWh"].fillna(0) * 1.06 + 1, mode="text", text=["☀"] * len(hot), name="Hot day",
+                        textfont=dict(size=13, color="#f0a03c"), showlegend=False, hoverinfo="skip")
+    for t in s.index:
+        if closure_name(t.date()):
+            fig.add_vrect(x0=t - pd.Timedelta(hours=12), x1=t + pd.Timedelta(hours=12), fillcolor="rgba(140,150,170,.18)",
+                          line_width=0, layer="below")
+    fig.update_layout(barmode="stack", bargap=.15, hovermode="closest", clickmode="event+select")
+    style(fig, 520, "AC energy per day (kWh)")
+    fig.update_xaxes(tickformat="%d %b", hoverformat="%a %d %b %Y")
+    picked = st.plotly_chart(fig, width="stretch", on_select="rerun", selection_mode="points",
+                             key=f"period_chart_{floor}_{period_start:%Y%m%d}_{PERIOD_DAYS}")
+    points = (picked or {}).get("selection", {}).get("points", []) if isinstance(picked, dict) else \
+        getattr(getattr(picked, "selection", None), "points", [])
+    if points:
+        st.session_state["jump_to_day"] = pd.Timestamp(points[0]["x"]).date()
+        st.rerun()
+    st.caption("☀ hot day (feels-like above " + hot_cutoff_text(sorted(set(s.index.month))) + " °C) · grey band = closure",
+               help=HOT_DAY_HELP)
+    if s["excess"].fillna(0).max() > 0:
+        w = s["excess"].idxmax()
+        takeaway(f"Worst day: <b>{w:%a %d %b}</b>, {s.loc[w, 'excess']:,.0f} kWh flagged "
+                 f"({100 * s['excess'].sum() / s['kWh'].sum():.0f}% of the period's AC energy was flagged excess).",
+                 more="Click its bar to replay that day in Operate.")
+
+
 # ================================================================ overview
 with tab_overview:
-    chips = [("thermo", f"{indoor_now:.1f} °C" if pd.notna(indoor_now) else "–", "Indoor · median while AC runs"),
-             ("sun", f"Feels like {feels_mean:.0f} °C", f"Outdoor average · {outdoor_mean:.1f} °C · {rh_mean:.0f}% RH"
+    span = SPAN
+    page_note("What is happening today and what to do about it. Totals cover the whole replayed day."
+              if OPERATE else "How the period went and where to look. Click a day in the chart to replay it in Operate.")
+    chips = [("thermo", f"{indoor_now:.1f} °C" if pd.notna(indoor_now) else "–", f"Indoor · median while AC runs, {span}"),
+             ("sun", f"Feels like {feels_mean:.0f} °C", f"Outdoor average {span} · {outdoor_mean:.1f} °C · {rh_mean:.0f}% RH"
              + ((" · hot day" if PERIOD_DAYS == 1 else f" · {len(hot_in_period)} hot day{'s' * (len(hot_in_period) > 1)}")
                 if len(hot_in_period) else "")),
-             ("bolt", f"{kpis['energy_kWh']:,.0f} kWh", "AC energy"),
-             ("peak", f"{kpis['peak_kW']:,.0f} kW", "15-min peak"),
-             ("bell", f"{len(events):,}", "Flagged events"),
-             ("snow", f"{VERIFIED_KWH:,.0f} kWh", "Verified savings")]
+             ("bolt", f"{kpis['energy_kWh']:,.0f} kWh", f"AC energy used, {span} total"),
+             ("peak", f"{kpis['peak_kW']:,.0f} kW", f"Highest 15-min AC demand, {span}"),
+             ("bell", f"{len(events):,}", f"Flagged events, {span}"),
+             ("snow", f"{VERIFIED_KWH:,.0f} kWh", f"Verified savings · {N_VERIFIED} fix{'es' * (N_VERIFIED != 1)} made {span}")
+             if N_VERIFIED else ("snow", "–", f"No fixes verified {span}")]
     html('<div class="kpis">' + "".join(f'<div class="kpi">{icon(i)}<div><div class="v">{v}</div>'
                                          f'<div class="l">{l}</div></div></div>' for i, v, l in chips) + "</div>")
 
@@ -1186,18 +1278,14 @@ with tab_overview:
                  + '<div class="card-f">Full queue: Work orders tab</div>')
 
     with centre:
-        replay_default = events["start"].iloc[0].date() if len(events) else period_start.date()
-        c1, c2 = st.columns([2, 1], vertical_alignment="bottom")
-        c1.markdown("**Building replay**",
-                    help="Red zones are flagged at that moment. "
-                         "Drag to rotate, scroll to zoom, hover a zone for readings, press play to replay the day. "
-                         "☰ Layers changes what the colours show. The Digital twin tab has the full controls.")
-        replay_day = c2.date_input("Day", replay_default, min_value=data_first, max_value=data_last, format="DD/MM/YYYY",
-                                   key=f"overview_day_{floor}_{period_start:%Y%m%d}_{PERIOD_DAYS}",
-                                   label_visibility="collapsed")
-        # On a single day the replay opens at the same moment as the Floors status
-        twin_frame(replay_day, 1, compact=True, height=600,
-                   start_time=at_time if at_time is not None and replay_day == at_time.date() else None)
+        if OPERATE:  # today's building, opening at the same moment as the Floors status
+            st.markdown("**Building replay · today**",
+                        help="Red zones are flagged at that moment. Drag to rotate, scroll to zoom, hover a zone for "
+                             "readings, press play to replay the day. ☰ Layers changes what the colours show. The "
+                             "Digital twin tab has the full controls.")
+            twin_frame(period_start.date(), 1, compact=True, height=600, start_time=at_time)
+        else:
+            period_summary_chart()
 
     with right:
         with st.container(key="card-findings"):
@@ -1241,16 +1329,19 @@ with tab_overview:
 
 # ================================================================ priority list
 with tab_priority:
+    page_note("Units flagged today. For a ranking over weeks or months," if OPERATE
+              else "Units ranked by excess cost × confidence ÷ effort over the period.",
+              "Review" if OPERATE else None)
     section(f"Unit priority list ({PERIOD} totals)",
-            help="Each unit is compared with its own normal pattern (learned from Jul 2018 – Jun 2019). Readings that are "
+            help="Each unit is compared with its own normal pattern (learned from Jul 2018 – Jun 2019), adjusted for the day's heat index while the unit is meant to run. Readings that are "
                  "unusually high, outside the unit's usual hours, or high for 2 hours or more are flagged. " + PRIORITY_HELP
-                 + " Chart: act first on the top right; bubble size = number of events.")
-    cols = ["rank", "priority_level", "AC unit", "issue", "excess_THB"] + (["per_day_THB"] if PERIOD_DAYS > 1 else []) + [
-        "confidence", "effort", "triage_score", "room_while_flagged", "events"]
+                 + " Chart: act first on the top right; bubble size = number of times flagged.")
+    cols = ["rank", "priority_level", "AC unit", "issue", "flagged_excess_kWh", "excess_THB"] + (
+        ["per_day_THB"] if PERIOD_DAYS > 1 else []) + ["confidence", "effort", "triage_score", "room_while_flagged", "events"]
     with st.container(key="card-triage"):
         scatter = priority.loc[priority["events"].gt(0)].copy()
         if len(scatter):
-            thb_cut = scatter["excess_THB"].quantile(.75)
+            kwh_cut = scatter["flagged_excess_kWh"].quantile(.75)
             scatter["label"] = scatter["AC unit"]
             fig = go.Figure()
             for effort, colour in [("Low", GOOD), ("Medium", "#eda100"), ("High", FLAG)]:
@@ -1258,15 +1349,15 @@ with tab_priority:
                 if part.empty:
                     continue
                 fig.add_trace(go.Scatter(
-                    x=part["confidence"], y=part["excess_THB"], mode="markers", name=f"{effort} effort",
+                    x=part["confidence"], y=part["flagged_excess_kWh"], mode="markers", name=f"{effort} effort",
                     marker=dict(color=colour, size=(10 + 1.2 * part["events"].clip(upper=30)), opacity=.75,
                                 line=dict(width=1, color="rgba(255,255,255,.5)")),
-                    text=part["label"], customdata=part[["events", "triage_score"]],
-                    hovertemplate="%{text}<br>confidence %{x:.0f} · %{y:,.0f} THB<br>%{customdata[0]} events · "
-                                  "triage %{customdata[1]:,.0f}<extra></extra>"))
+                    text=part["label"], customdata=part[["events", "triage_score", "excess_THB"]],
+                    hovertemplate="%{text}<br>confidence %{x:.0f} · %{y:,.0f} kWh excess (≈ %{customdata[2]:,.0f} THB)"
+                                  "<br>flagged %{customdata[0]} times · triage %{customdata[1]:,.0f}<extra></extra>"))
             fig.add_vline(x=70, line=dict(color=MUTED, dash="dot"))
-            fig.add_hline(y=thb_cut, line=dict(color=MUTED, dash="dot"))
-            style(fig, 320, "Excess THB", "Confidence")
+            fig.add_hline(y=kwh_cut, line=dict(color=MUTED, dash="dot"))
+            style(fig, 320, "Excess energy (kWh)", "Confidence")
             fig.update_layout(hovermode="closest")
             fig.update_xaxes(range=[0, 100])
             st.plotly_chart(fig, width="stretch")
@@ -1276,9 +1367,15 @@ with tab_priority:
     table = priority if show_all or flagged_units.empty else flagged_units
     st.dataframe(table[cols], hide_index=True, width="stretch", height=table_height(len(table), 420), column_config={
         **PRIORITY_COLUMNS,
-        "issue": st.column_config.TextColumn("Main issue", help="The kind of flag that cost the most for this unit: "
-                                             "runs while the building is closed, outside its usual schedule, high while "
-                                             "the building is open, or running while the room stays above 26 °C."),
+        "issue": st.column_config.TextColumn("Main issue", help="The kind of flag that wasted the most energy for this unit. "
+                                             "Runs while closed = on while the building is shut. Runs outside its schedule "
+                                             "= on at hours it normally is off. Above normal in open hours = on when it "
+                                             "should be, but drawing clearly more power than its usual pattern for that "
+                                             "hour (e.g. a low setpoint or a dirty filter). Runs, room stays warm = running "
+                                             "while the room stays above 26 °C.", width=175),
+        "flagged_excess_kWh": st.column_config.NumberColumn("Excess (kWh)", format="%.0f", width="small",
+                                                            help="Energy above the unit's normal pattern during flagged "
+                                                                 "times. Wasted THB = this × the electricity price."),
         "confidence": st.column_config.ProgressColumn("Confidence", min_value=0, max_value=100, format="%.0f",
                                                       width="small", help=CONFIDENCE_HELP),
         "excess_THB": st.column_config.NumberColumn("Wasted (THB)", format="%.0f",
@@ -1289,10 +1386,12 @@ with tab_priority:
         "effort": st.column_config.TextColumn("Effort", width="small",
                                               help="Fix effort. Low = schedule or timer · Medium = inspect · High = repair."),
         "room_while_flagged": st.column_config.TextColumn(
-            "Room while flagged", width="medium", help="Median indoor temperature during the flagged readings, against the 23–26 °C "
-                                       "comfort band. Too cold while wasting energy points to overcooling."),
-        "events": st.column_config.NumberColumn("Episodes", width="small",
-                                                help="Separate runs of flagged 15-minute readings."),
+            "Median indoor temp", width=135, help="Median room temperature during this unit's flagged readings, "
+                                       "against the 23–26 °C comfort band. Too cold while wasting energy points to overcooling."),
+        "events": st.column_config.NumberColumn("Times flagged", width="small",
+                                                help="How many separate times the unit was flagged. Back-to-back flagged "
+                                                     "15-minute readings count as one time, e.g. running from 19:00 to "
+                                                     "23:00 on one night = 1."),
         "flagged_pct": st.column_config.NumberColumn("% time flagged", format="%.0f%%", width="small",
                                                      help="Flagged readings ÷ all valid readings for the unit.")})
     if top is not None and top["events"]:
@@ -1301,6 +1400,82 @@ with tab_priority:
                    help=f"About {top['excess_THB']:,.0f} THB of excess energy{per_day} × confidence {top['confidence']:.0f} "
                         f"÷ effort ({top['effort'].lower()}) = triage score {top['triage_score']:,.0f}, "
                         f"{top['share_pct']:.0f}% of the total → {top['priority_level']}.")
+
+    section("Event list",
+            help="One row per unusual episode, ranked by triage score. " + TRIAGE_HELP)
+    if events.empty:
+        st.warning("No events with the current thresholds and review period.")
+    else:
+        f1, f2, f3, f4 = st.columns([2, 2, 2, 3], vertical_alignment="bottom")
+        min_hours = f1.number_input("Minimum duration (h)", 0.0, 48.0, 0.0, 0.25)
+        only_after = f2.checkbox("After-hours only")
+        hide_hot = f3.checkbox("Hide hot-day events", help=HOT_DAY_HELP)
+        ev = events.loc[events["duration_h"].ge(min_hours)]
+        if only_after:
+            ev = ev.loc[ev["after_hours_h"].gt(0)]
+        if hide_hot:
+            ev = ev.loc[~ev["hot_day"]]
+        ev = ev.assign(**{"AC unit": ev["unit"].map(unit_label)})
+        ev.insert(0, "rank", range(1, len(ev) + 1))
+        f4.caption(f"{len(ev):,} of {len(events):,} events shown")
+        # Feels-like °C with * on hot days, in one column (the CSV keeps the number and a hot_day column)
+        ev["feels"] = [("–" if pd.isna(h) else f"{h:.1f}") + (" *" if hot else "")
+                       for h, hot in zip(ev["heat_index_C"], ev["hot_day"])]
+        ev_cols = ["rank", "priority_level", "AC unit", "reason", "start", "end", "duration_h", "peak_kW", "excess_kWh",
+                   "excess_THB", "confidence", "effort", "triage_score", "after_hours_h", "heat_index_C", "hot_day"]
+        show_cols = [c for c in ev_cols if c not in ("heat_index_C", "hot_day")] + ["feels"]
+        st.dataframe(ev[show_cols], hide_index=True, width="stretch", height=table_height(len(ev), 420), column_config={
+            "rank": st.column_config.NumberColumn("#", width=35),
+            "priority_level": PRIORITY_COLUMNS["priority_level"],
+            "start": st.column_config.DatetimeColumn("Start", format="ddd D MMM YYYY, HH:mm"),
+            "end": st.column_config.DatetimeColumn("End", format="HH:mm"),
+            "duration_h": st.column_config.NumberColumn("Duration (h)", format="%.2f"),
+            "peak_kW": st.column_config.NumberColumn("Peak (kW)", format="%.1f"),
+            "excess_kWh": st.column_config.NumberColumn("Excess (kWh)", format="%.1f"),
+            "excess_THB": PRIORITY_COLUMNS["excess_THB"], "confidence": PRIORITY_COLUMNS["confidence"],
+            "effort": PRIORITY_COLUMNS["effort"], "triage_score": PRIORITY_COLUMNS["triage_score"],
+            "after_hours_h": st.column_config.NumberColumn("After hours (h)", format="%.2f"),
+            "feels": st.column_config.TextColumn(
+                "Feels like (°C)", width="small",
+                help="**Feels like** = average heat index during the event (outdoor temperature + humidity).\n\n"
+                     "**\\*** = hot day. " + HOT_DAY_HELP),
+            "reason": st.column_config.TextColumn(
+                "Why flagged", width="medium",
+                help="On while closed / outside usual hours = running when the building is shut or the unit is "
+                     "normally off. Unusually high for the time = above the unit's usual range for that weekday and "
+                     "15-minute slot, after allowing for the weather. Stayed above normal = above its weather-adjusted "
+                     "normal level for a sustained run (2 h by default, see the sidebar).")})
+        st.download_button("Download event list (CSV)", ev[ev_cols].to_csv(index=False).encode("utf-8"),
+                           "ac_priority_events.csv", "text/csv")
+
+    section("Inspect a unit",
+            help="Blue = actual power, orange dashed = expected, red dots = "
+                 "flagged. Lower panel: outdoor feels-like (heat index, from temperature and humidity) and indoor °C.")
+    controls, chart = st.columns([1, 3], gap="large")
+    with controls:
+        unit = st.selectbox("AC unit", priority.index.tolist(), format_func=unit_label, key=f"inspect_unit_{floor}")
+        if st.button("Open asset card", key=f"card_priority_{floor}", help="History, timeline, efficiency trend and peers for this unit."):
+            asset_dialog(brick_model().asset_for_column(unit)["asset_id"])
+        # Follows the timeframe at the top of the page (d is already limited to it)
+        view = d.loc[d["unit"].eq(unit)].set_index("Date")
+        start, end = period_start, period_end
+        st.caption(f"Flagged excess {view.loc[view['flagged'], 'excess_kWh_est'].sum():,.0f} kWh",
+                   help=f"Follows the timeframe at the top ({PERIOD}).")
+    with chart:
+        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.72, 0.28], vertical_spacing=0.06)
+        fig.add_trace(go.Scatter(x=view.index, y=view["actual_kW"], name="Actual", line=dict(color=ACTUAL, width=2)), 1, 1)
+        fig.add_trace(go.Scatter(x=view.index, y=view["expected_kW"], name="Expected", line=dict(color=EXPECTED, width=2, dash="dash")), 1, 1)
+        fl = view.loc[view["flagged"]]
+        fig.add_trace(go.Scatter(x=fl.index, y=fl["actual_kW"], mode="markers", name="Flagged",
+                                 marker=dict(color=FLAG, size=7, opacity=.85)), 1, 1)
+        fig.add_trace(go.Scatter(x=view.index, y=view["heat_index_C"], name="Feels like °C",
+                                 line=dict(color=MUTED, width=2)), 2, 1)
+        fig.add_trace(go.Scatter(x=view.index, y=view["indoor_temp_C"], name="Indoor °C", line=dict(color=GOOD, width=2)), 2, 1)
+        style(fig, 400)
+        day_axis(fig, (end - start).days)
+        fig.update_yaxes(title="AC power (kW)", row=1, col=1)
+        fig.update_yaxes(title="°C", rangemode="normal", row=2, col=1)
+        st.plotly_chart(fig, width="stretch")
 
     section("When flags happen",
             help="Left: the share of flagged extra energy by type of time (red = outside weekday working hours). Right: how often readings are flagged, by "
@@ -1331,81 +1506,21 @@ with tab_priority:
                  more=f"{when_pct.max():.0f}% of the extra energy is used {when_phrase}, and {after_hours_pct:.0f}% falls "
                       "outside the units' usual schedule.")
 
-    section("Event list",
-            help="One row per unusual episode, ranked by triage score. " + TRIAGE_HELP)
-    if events.empty:
-        st.warning("No events with the current thresholds and review period.")
-    else:
-        f1, f2, f3, f4 = st.columns([2, 2, 2, 3], vertical_alignment="bottom")
-        min_hours = f1.number_input("Minimum duration (h)", 0.0, 48.0, 0.0, 0.25)
-        only_after = f2.checkbox("After-hours only")
-        hide_hot = f3.checkbox("Hide hot-day events")
-        ev = events.loc[events["duration_h"].ge(min_hours)]
-        if only_after:
-            ev = ev.loc[ev["after_hours_h"].gt(0)]
-        if hide_hot:
-            ev = ev.loc[~ev["hot_day"]]
-        ev = ev.assign(**{"AC unit": ev["unit"].map(unit_label)})
-        ev.insert(0, "rank", range(1, len(ev) + 1))
-        f4.caption(f"{len(ev):,} of {len(events):,} events shown")
-        ev_cols = ["rank", "priority_level", "AC unit", "start", "end", "duration_h", "peak_kW", "excess_kWh",
-                   "excess_THB", "confidence", "effort", "triage_score", "after_hours_h", "outdoor_C", "heat_index_C", "reason"]
-        st.dataframe(ev[ev_cols], hide_index=True, width="stretch", height=table_height(len(ev), 420), column_config={
-            "rank": st.column_config.NumberColumn("#", width=35),
-            "priority_level": PRIORITY_COLUMNS["priority_level"],
-            "start": st.column_config.DatetimeColumn("Start", format="ddd D MMM YYYY, HH:mm"),
-            "end": st.column_config.DatetimeColumn("End", format="HH:mm"),
-            "duration_h": st.column_config.NumberColumn("Hours", format="%.2f"),
-            "peak_kW": st.column_config.NumberColumn("Peak kW", format="%.1f"),
-            "excess_kWh": st.column_config.NumberColumn("Excess kWh", format="%.1f"),
-            "excess_THB": PRIORITY_COLUMNS["excess_THB"], "confidence": PRIORITY_COLUMNS["confidence"],
-            "effort": PRIORITY_COLUMNS["effort"], "triage_score": PRIORITY_COLUMNS["triage_score"],
-            "after_hours_h": st.column_config.NumberColumn("After-hours h", format="%.2f"),
-            "outdoor_C": st.column_config.NumberColumn("Outdoor °C", format="%.1f"),
-            "heat_index_C": st.column_config.NumberColumn("Feels like °C", format="%.1f",
-                                                          help="Heat index from outdoor temperature and humidity."),
-            "reason": st.column_config.TextColumn("Why flagged", width="large")})
-        st.download_button("Download event list (CSV)", ev[ev_cols].to_csv(index=False).encode("utf-8"),
-                           "ac_priority_events.csv", "text/csv")
-
-    section("Inspect a unit",
-            help="Blue = actual power, orange dashed = expected, red dots = "
-                 "flagged. Lower panel: outdoor, feels-like (heat index) and indoor °C.")
-    controls, chart = st.columns([1, 3], gap="large")
-    with controls:
-        unit = st.selectbox("AC unit", priority.index.tolist(), format_func=unit_label, key=f"inspect_unit_{floor}")
-        if st.button("Open asset card", key=f"card_priority_{floor}", help="History, timeline, efficiency trend and peers for this unit."):
-            asset_dialog(brick_model().asset_for_column(unit)["asset_id"])
-        # Follows the timeframe at the top of the page (d is already limited to it)
-        view = d.loc[d["unit"].eq(unit)].set_index("Date")
-        start, end = period_start, period_end
-        st.caption(f"Flagged excess {view.loc[view['flagged'], 'excess_kWh_est'].sum():,.0f} kWh",
-                   help=f"Follows the timeframe at the top ({PERIOD}).")
-    with chart:
-        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.72, 0.28], vertical_spacing=0.06)
-        fig.add_trace(go.Scatter(x=view.index, y=view["actual_kW"], name="Actual", line=dict(color=ACTUAL, width=2)), 1, 1)
-        fig.add_trace(go.Scatter(x=view.index, y=view["expected_kW"], name="Expected", line=dict(color=EXPECTED, width=2, dash="dash")), 1, 1)
-        fl = view.loc[view["flagged"]]
-        fig.add_trace(go.Scatter(x=fl.index, y=fl["actual_kW"], mode="markers", name="Flagged",
-                                 marker=dict(color=FLAG, size=7, opacity=.85)), 1, 1)
-        fig.add_trace(go.Scatter(x=view.index, y=view["outdoor_temp_C"], name="Outdoor °C", line=dict(color=MUTED, width=2)), 2, 1)
-        fig.add_trace(go.Scatter(x=view.index, y=view["heat_index_C"], name="Feels like °C",
-                                 line=dict(color=MUTED, width=1.5, dash="dot")), 2, 1)
-        fig.add_trace(go.Scatter(x=view.index, y=view["indoor_temp_C"], name="Indoor °C", line=dict(color=GOOD, width=2)), 2, 1)
-        style(fig, 400)
-        day_axis(fig, (end - start).days)
-        fig.update_yaxes(title="AC power (kW)", row=1, col=1)
-        fig.update_yaxes(title="°C", rangemode="normal", row=2, col=1)
-        st.plotly_chart(fig, width="stretch")
 
 with tab_orders:
     fm_tabs.render(FM_CTX)
 
 with tab_maint:
+    page_note('Workflow demo <span class="sim">Simulated</span> · health indicators come from the real meter data; the maintenance log, fault-risk '
+              'model and likely causes are simulated. '
+              + (f"Health and service dates as of today ({period_start:%d %b})." if OPERATE
+                 else f"Health as of the end of the period ({period_end - pd.Timedelta(days=1):%d %b})."))
     fm_maint_ui.maintenance_tab(FM_CTX)
 
 # ================================================================ compare floors
 with tab_compare:
+    page_note("Floors compared for today only. Comparisons are more meaningful over a period:" if OPERATE
+              else "Floors compared over the period (same AC layout on every floor).", "Review" if OPERATE else None)
     floor_colour = {f: UNIT_COLOURS[i % len(UNIT_COLOURS)] for i, f in enumerate(FLOORS)}
 
     section(f"How do the floors compare? ({PERIOD} totals)",
@@ -1444,7 +1559,8 @@ with tab_compare:
                  "median of the same unit position on the other floors: +30% means it draws 30% more than its peers.")
     left, right = st.columns([1.3, 1], gap="large")
     with left:
-        st.dataframe(allunits[["rank", "priority_level", "AC unit", "excess_THB", "confidence", "triage_score", "vs_peers_pct"]],
+        st.dataframe(allunits[["rank", "priority_level", "AC unit", "flagged_excess_kWh", "confidence", "triage_score",
+                               "vs_peers_pct"]],
                      hide_index=True, width="stretch", height=420, column_config={
                          **PRIORITY_COLUMNS,
                          "vs_peers_pct": st.column_config.NumberColumn("vs peers", format="%+.0f%%",
@@ -1518,6 +1634,9 @@ with tab_compare:
 
 # ================================================================ forecast
 with tab_forecast:
+    page_note("Plan for tomorrow: expected peak, high-demand hours and the error band. Accuracy below is always scored "
+              "on Jul–Dec 2019." if OPERATE else "How accurate the forecast is (always scored on Jul–Dec 2019) and how "
+              "it tracked this period.", None if OPERATE else "Operate to plan a specific tomorrow")
     scope_note("accuracy is always scored on Jul–Dec 2019, the week chart has its own date, and the next-day "
                "forecast follows the timeframe.")
     models = [c for c in fc.columns if c != "floor_kW"]
@@ -1538,8 +1657,8 @@ with tab_forecast:
                               + "; ".join(f"Floor {f}: {MODEL_LABELS.get(m, m)}" for f, m in floor_choice.items())
                               + ". ")
     forecast_help += ("Peak-hour error = average error in hours at or above the baseline's busiest 10 % level. "
-                      "Bias: + means it predicts too "
-                      "high on average, − too low. Methods with weather use observed Open-Meteo weather in place of a "
+                      "Bias (NMBE, ASHRAE sign): + means it predicts too "
+                      "low on average, − too high. Methods with weather use observed Open-Meteo weather in place of a "
                       "weather forecast, so their errors are optimistic. Chart: blue = chosen, green = uses weather. "
                       "Scored against the AC load of "
                       + (f"Floors {', '.join(map(str, FLOORS[:-1]))} and {FLOORS[-1]} combined" if floor == ALL
@@ -1549,7 +1668,34 @@ with tab_forecast:
                          f"chosen method's average error from {mae_without_holidays:.1f} to {selected_mae:.1f} kW per hour "
                          "(turn it off under Building Opening Hours in the sidebar)." if use_holidays else ""))
 
-    section("Next-day hourly AC demand forecast: accuracy", help=forecast_help)
+    section(f"{"Tomorrow's" if OPERATE else 'Next-day'} forecast · {peak_time:%a %d %b %Y}",
+            help=("Tomorrow, from the replay date at the top. " if OPERATE else "The day after the review period. ")
+            + n24_note[0].upper() + n24_note[1:] + ".")
+    if OPERATE and HAS_ACTUAL:
+        st.toggle("Show what actually happened", key="show_actual",
+                  help="Off: you see only what an FM would know this morning. On: compare with the actual load "
+                       "(the data has it because this is a replay).")
+    c1, c2 = st.columns([3, 1], gap="large")
+    c1.plotly_chart(next_day_chart(300), width="stretch")
+    c2.metric("Expected peak", f"{peak_kw:.0f} kW", f"at {peak_time:%H:%M}", delta_color="off")
+    if SHOW_ACTUAL:
+        actual_peak_time = n24["actual_kW"].idxmax()
+        c2.metric("Actual peak", f"{n24['actual_kW'].max():.0f} kW", f"at {actual_peak_time:%H:%M}", delta_color="off")
+        c2.metric("This day's average error", f"{(n24['predicted_kW'] - n24['actual_kW']).abs().mean():.1f} kW",
+                  help=f"Typical for Jul–Dec 2019: {selected_mae:.1f} kW")
+    else:
+        c2.metric("Expected daily energy", f"{n24['predicted_kW'].sum():,.0f} kWh")
+        c2.metric("Typical error at the peak hour", f"±{error_by_hour.get(peak_time.hour, selected_mae):.0f} kW")
+    quiet = n24.between_time("08:00", "16:59")
+    quiet = [t for t in quiet.index if quiet.loc[t, "predicted_kW"] < 0.2 * peak_kw]
+    better = f" ({100 * (1 - selected_mae / lastweek_mae):.0f}% better than repeating last week)" if np.isfinite(lastweek_mae) else ""
+    takeaway(f"Plan for about <b>{peak_kw:.0f} kW at {peak_time:%H:%M}</b> "
+             f"(± {error_by_hour.get(peak_time.hour, selected_mae):.0f} kW).",
+             more=f"The forecast is off by {selected_mae:.1f} kW per hour on average{better}. Demand jumps when units "
+                  "start, so a staggered start-up flattens the peak."
+                  + (f" The quietest working hour is {quiet[0]:%H:%M}, a good time for inspections." if quiet else ""))
+
+    section("How accurate is the forecast? (Jul–Dec 2019)", help=forecast_help)
     left, right = st.columns([1, 1], gap="large")
     with left:
         st.dataframe(tm[["Rank", "Model", "MAE_kW", "peak_hour_MAE_kW"]].round(2), hide_index=True,
@@ -1561,21 +1707,21 @@ with tab_forecast:
                          "peak_hour_MAE_kW": st.column_config.NumberColumn("Peak-hour error", format="%.2f",
                                                                            help="Average error in the busiest 10 % of hours (kW)."),
                          "NMBE_pct": st.column_config.NumberColumn("Bias %", format="%+.1f",
-                                                                   help="+ = predicts too high on average, − = too low.")})
+                                                                   help="ASHRAE sign: + = predicts too low on average, − = too high.")})
         with st.expander("More accuracy measures"):
             extra = (["Rank", "Model", "NMBE_pct"] + ([] if floor == ALL else ["Validation MAE_kW"])
                      + ["RMSE_kW", "CV_RMSE_pct", "hours"])
             st.dataframe(tm[extra].round(2), hide_index=True, width="stretch", column_config={
                 "Rank": st.column_config.NumberColumn("#", width=35),
                 "NMBE_pct": st.column_config.NumberColumn("Bias %", format="%+.1f",
-                                                          help="+ = predicts too high on average, − = too low."),
+                                                          help="ASHRAE sign: + = predicts too low on average, − = too high."),
                 "Validation MAE_kW": st.column_config.NumberColumn("Apr–Jun error (kW)", format="%.2f"),
                 "RMSE_kW": st.column_config.NumberColumn("RMSE (kW)", format="%.2f"),
                 "CV_RMSE_pct": st.column_config.NumberColumn("CV(RMSE) %", format="%.1f"),
                 "hours": st.column_config.NumberColumn("Hours scored")})
     with right:
         order = tm.index.tolist()[::-1]
-        colours = [ACTUAL if m == selected_model else GOOD if "weather" in m else "#4a5d7e" for m in order]
+        colours = [ACTUAL if m == selected_model else GOOD if m in WEATHER_MODELS else "#4a5d7e" for m in order]
         fig = go.Figure(go.Bar(y=[MODEL_LABELS.get(m, m) for m in order], x=tm.loc[order, "MAE_kW"], orientation="h",
                                marker_color=colours, text=tm.loc[order, "MAE_kW"].round(2), textposition="outside",
                                cliponaxis=False, hovertemplate="%{y}: %{x:.2f} kW<extra></extra>"))
@@ -1619,7 +1765,7 @@ with tab_forecast:
                  "holiday calendar are not modelled, so those days show large misses.")
     c1, c2 = st.columns([2, 1], vertical_alignment="bottom")
     picked = c1.multiselect("Methods to plot", models,
-                            default=[selected_model] + ([WEATHER_MODEL] if selected_model != WEATHER_MODEL and WEATHER_MODEL in models else []),
+                            default=[selected_model] + ([HEAT_MODEL] if selected_model != HEAT_MODEL and HEAT_MODEL in models else []),
                             format_func=lambda m: MODEL_LABELS.get(m, m), max_selections=3)
     dates = fc.index.normalize().unique()
     start = c2.date_input("Week starting", dates.min().date(), min_value=dates.min().date(), max_value=dates.max().date(),
@@ -1632,30 +1778,11 @@ with tab_forecast:
     day_axis(fig, 7)
     st.plotly_chart(fig, width="stretch")
 
-    section(f"Next-day forecast · {peak_time:%a %d %b %Y}",
-            help="The day after the selected timeframe (change it at the top). " + n24_note[0].upper() + n24_note[1:] + ".")
-    c1, c2 = st.columns([3, 1], gap="large")
-    c1.plotly_chart(next_day_chart(300), width="stretch")
-    c2.metric("Expected peak", f"{peak_kw:.0f} kW", f"at {peak_time:%H:%M}", delta_color="off")
-    if HAS_ACTUAL:
-        actual_peak_time = n24["actual_kW"].idxmax()
-        c2.metric("Actual peak", f"{n24['actual_kW'].max():.0f} kW", f"at {actual_peak_time:%H:%M}", delta_color="off")
-        c2.metric("This day's average error", f"{(n24['predicted_kW'] - n24['actual_kW']).abs().mean():.1f} kW",
-                  help=f"Typical for Jul–Dec 2019: {selected_mae:.1f} kW")
-    else:
-        c2.metric("Expected daily energy", f"{n24['predicted_kW'].sum():,.0f} kWh")
-        c2.metric("Typical error at the peak hour", f"±{error_by_hour.get(peak_time.hour, selected_mae):.0f} kW")
-    quiet = n24.between_time("08:00", "16:59")
-    quiet = [t for t in quiet.index if quiet.loc[t, "predicted_kW"] < 0.2 * peak_kw]
-    better = f" ({100 * (1 - selected_mae / lastweek_mae):.0f}% better than repeating last week)" if np.isfinite(lastweek_mae) else ""
-    takeaway(f"Plan for about <b>{peak_kw:.0f} kW at {peak_time:%H:%M}</b> "
-             f"(± {error_by_hour.get(peak_time.hour, selected_mae):.0f} kW).",
-             more=f"The forecast is off by {selected_mae:.1f} kW per hour on average{better}. Demand jumps when units "
-                  "start, so a staggered start-up flattens the peak."
-                  + (f" The quietest working hour is {quiet[0]:%H:%M}, a good time for inspections." if quiet else ""))
-
 # ================================================================ simulator
 with tab_sim:
+    page_note("What-if for today's replayed day. For savings over a month or Jul–Dec," if OPERATE
+              else "What-if over the whole period: savings if a setpoint or schedule had been used.",
+              "Review" if OPERATE else None)
     slope = sens["kW_per_degC_outdoor"].clip(lower=0)
     scope_note("savings are estimated over the timeframe; current comfort is the Jul–Dec 2019 weekday average.")
 
@@ -1792,6 +1919,8 @@ with tab_sim:
 
 # ================================================================ digital twin
 with tab_twin:
+    page_note("Today's building, zone by zone. 'Forecast next day' shows tomorrow." if OPERATE
+              else "Replay any day in the period; it opens on the day with the most flagged excess.")
     c_head, c_date, c_days = st.columns([4, 1, 1], vertical_alignment="bottom")
     c_head.markdown("**Digital twin**", help="Interactive 3D model of Chamchuri 5, traced from the CU-BEMS paper's floor plan "
                                           "(Floors 3–7) and building view. Drag to rotate, right-drag to pan, scroll to zoom. "
@@ -1804,9 +1933,11 @@ with tab_twin:
                                           "colours use the timeframe at the top. Floors 1, 2 and 6 are shown for context but "
                                           "are not in this analysis.")
     # The twin's own clock shows the weekday, so no separate weekday caption here (it pushed the row out of line)
-    twin_start = c_date.date_input("From", max(pd.Timestamp("2019-07-22").date(), data_first), min_value=data_first,
-                                   max_value=data_last, format="DD/MM/YYYY", key="twin_start")
-    twin_days = c_days.selectbox("Days to load", [1, 3, 7], index=2, key="twin_days",
+    # Operate opens on today; Review on the period's worst day (most flagged excess)
+    twin_start = c_date.date_input("From", period_start.date() if OPERATE else worst_day(), min_value=data_first,
+                                   max_value=data_last, format="DD/MM/YYYY",
+                                   key=f"twin_start_{app_mode}_{floor}_{period_start:%Y%m%d}_{PERIOD_DAYS}")
+    twin_days = c_days.selectbox("Days to load", [1, 3, 7], index=0 if OPERATE else 2, key=f"twin_days_{app_mode}",
                                  format_func=lambda n: f"{n} day" + ("s" if n > 1 else ""))
     mode = st.segmented_control("Mode", ["Replay", "Forecast next day", "What-if"], default="Replay", key="twin_mode",
                                 help="Replay = what happened. Forecast next day = the forecast for the day after the timeframe "

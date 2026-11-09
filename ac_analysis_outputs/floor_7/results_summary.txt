@@ -2,23 +2,23 @@ FLOOR 7 RESULTS — generated from the supplied data
 Baseline: 2018-07-01 to 2019-06-30
 Reporting: 2019-07-01 to 2019-12-31
 Active units: 4
-Potential anomaly review events: 235
-Flagged 15-minute unit-intervals: 1400
-Flagged unit-hours: 350.00
+Potential anomaly review events: 276
+Flagged 15-minute unit-intervals: 1472
+Flagged unit-hours: 368.00
 Q1 resolution: 15 minutes; Q2 resolution: hourly
 Highest-excess unit: F7_z1_AC4(kW)
-Forecast selected on April–June validation: M1 median profile
+Forecast selected on April–June validation: M8 median profile + heat index
 Common test hours: 4383
-Selected forecast MAE: 5.606 kW
-Same-hour-last-week MAE: 7.561 kW
-MAE improvement vs last week: 25.9%
-Selected NMBE: 1.51%
-Selected CV(RMSE): 76.30%
-Selected peak-hour MAE: 9.106 kW
+Selected forecast MAE: 3.420 kW
+Same-hour-last-week MAE: 5.781 kW
+MAE improvement vs last week: 40.8%
+Selected NMBE: 7.42%
+Selected CV(RMSE): 48.95%
+Selected peak-hour MAE: 7.974 kW
 Suspected unverified closure weekdays: 24
-Weather: Open-Meteo hourly, shifted GMT -> UTC+7; hot day = daytime temp above baseline q90% for that month
-Flagged events on hot days: 89 of 235
-Weather-aware forecast (M5/M6) best test MAE: 6.477 kW (uses observed weather)
+Weather: Open-Meteo hourly, shifted GMT -> UTC+7; hot day = daytime heat index above baseline q90% for that month
+Flagged events on hot days: 51 of 276
+Weather-aware forecast (M5–M8) best test MAE: 3.420 kW (uses observed weather)
 Median indoor temperature while running (reporting): 21.1 °C
 Historical next-day demonstration: 2020-01-01
 All anomaly labels are potential anomalies. No diagnosed faults or proven savings.

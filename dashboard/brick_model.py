@@ -5,6 +5,7 @@ chamchuri5.json (written next to the TTL by build_brick.py), so the dashboard st
 """
 import functools
 import json
+import threading
 from pathlib import Path
 
 import pandas as pd
@@ -122,7 +123,17 @@ class BrickModel:
                                  "supply_group": "Supply group", "floor": "Floor", "zone": "Zone"})
 
 
-@functools.lru_cache(maxsize=1)
+_MODEL_LOCK = threading.Lock()
+
+
 def get_model():
-    """One shared model per process (parsing the graph takes ~0.5 s, and lookups happen per unit)."""
+    """One shared model per process (parsing the graph takes ~0.5 s, and lookups happen per unit). Locked because
+    Streamlit can run two script threads at once, and rdflib's SPARQL parser (pyparsing) is not thread-safe: two
+    first loads in parallel failed with 'Param.postParse2() missing ... tokenList'."""
+    with _MODEL_LOCK:
+        return _load_once()
+
+
+@functools.lru_cache(maxsize=1)
+def _load_once():
     return BrickModel.load()

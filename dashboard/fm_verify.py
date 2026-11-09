@@ -1,12 +1,15 @@
 """Verification (measurement and verification, M&V) of resolved incidents (plan §8). Streamlit-free.
 
-A fix is verified when the incident's own metric fell by at least half in the 28 days after the fix date, nothing
-recurred in the last 14 days of that window and comfort did not get worse. Nothing here proves a saving: it compares
-before and after on the same data."""
+Follows the IPMVP adjusted-baseline idea (Option B, one piece of equipment): a small model of the incident's daily
+metric is fitted on the 28 days before the fix (open vs closed day, plus daytime heat index for patterns that happen
+while the building is open) and predicts what the metric would have been in the days after had nothing been fixed.
+Saving = that adjusted baseline − what was measured. A fix is verified when the metric fell by at least half against
+the adjusted baseline, nothing recurred in the last 14 days of the window and comfort did not get worse. The fixes in
+the demo are simulated, so these are not proven savings."""
 import numpy as np
 import pandas as pd
 
-from fm_core import COMFORT_BAND, DEFAULT_TARIFF_THB, INTERVAL_HOURS
+from fm_core import CLOSED_DATES, COMFORT_BAND, DEFAULT_TARIFF_THB, INTERVAL_HOURS
 
 WINDOW_DAYS = 28
 RECUR_DAYS = 14
@@ -17,6 +20,40 @@ VERDICTS = ["Verified", "Reopened", "Inconclusive", "Not verified"]
 METRIC_LABEL = {"closed_running": "kWh while closed or off-schedule per day", "off_schedule": "kWh while closed or off-schedule per day",
                 "high_while_open": "kWh above expected per day", "warm_running": "hours running with the zone > 26 °C per day",
                 "supply_group_off": "hours with units off together per day", "supply_group_high": "flagged kWh per day"}
+# Patterns that happen while the building is open, so their metric also moves with the weather
+WEATHER_PATTERNS = {"high_while_open", "warm_running", "supply_group_high"}
+
+
+def day_features(detail, days):
+    """Per day: closed (weekend or public holiday / closure) and the daytime (08:00-17:00) mean outdoor heat index."""
+    closed = pd.Series((days.dayofweek >= 5) | days.isin(CLOSED_DATES), index=days)
+    if "heat_index_C" in detail:
+        d = detail[(detail["Date"].dt.hour >= 8) & (detail["Date"].dt.hour < 17)]
+        hi = d.groupby(d["Date"].dt.normalize())["heat_index_C"].mean().reindex(days)
+    else:
+        hi = pd.Series(np.nan, index=days)
+    return closed, hi
+
+
+def adjusted_baseline(pre, post_days, detail, pattern):
+    """Predicted daily metric for `post_days` had nothing been fixed, from a model fitted on the `pre` days: the pre-fix
+    average for that day type (open or closed), moved by slope × (heat index − its pre-fix average) for weather-driven
+    patterns. Returns (prediction per day, fit CV(RMSE) % on the pre days in ASHRAE form, whether heat index was used)."""
+    closed_pre, hi_pre = day_features(detail, pre.index)
+    closed_post, hi_post = day_features(detail, post_days)
+    means = pre.groupby(closed_pre).mean()
+    level = lambda closed: closed.map(lambda c: means.get(c, pre.mean())).astype(float)
+    fitted, pred = level(closed_pre), level(closed_post)
+    use_hi = (pattern in WEATHER_PATTERNS and hi_pre.notna().all() and hi_post.notna().all() and hi_pre.std() > 0)
+    if use_hi:
+        x = (hi_pre - hi_pre.mean()).to_numpy()
+        slope = float(np.dot(x, (pre - fitted).to_numpy()) / np.dot(x, x))
+        fitted = fitted + slope * x
+        pred = pred + slope * (hi_post - hi_pre.mean())
+    p = len(means) + int(use_hi)
+    resid = pre - fitted
+    cv = (100 * np.sqrt((resid ** 2).sum() / max(len(pre) - p, 1)) / pre.mean()) if pre.mean() > 0 else np.nan
+    return pred.clip(lower=0), float(cv), use_hi
 
 
 def daily_metric(detail, pattern, start, end, group_events=None):
@@ -65,7 +102,12 @@ def verify_incident(detail, pattern, fix_date, events=None, data_end=None, tarif
     last_window = ev_post[ev_post["start"].ge(post_end - pd.Timedelta(days=RECUR_DAYS))] if len(ev_post) else ev_post
     c_pre, c_post = comfort_pct(detail, pre_start, fix), (comfort_pct(detail, fix, post_end) if post_days else np.nan)
     pre_day, post_day = float(pre.mean()), (float(post.mean()) if post_days else np.nan)
-    drop = 1 - post_day / pre_day if pre_day > 0 and post_days else np.nan
+    if post_days:
+        baseline, fit_cv, used_hi = adjusted_baseline(pre, post.index, detail, pattern)
+        base_day = float(baseline.mean())
+    else:
+        baseline, fit_cv, used_hi, base_day = pd.Series(dtype=float), np.nan, False, np.nan
+    drop = 1 - post_day / base_day if post_days and base_day > 0 else np.nan
     comfort_ok = not (pd.notna(c_pre) and pd.notna(c_post) and c_post < c_pre - COMFORT_WORSE_PTS)
     if post_days < MIN_POST_DAYS:
         verdict = "Inconclusive"
@@ -75,9 +117,12 @@ def verify_incident(detail, pattern, fix_date, events=None, data_end=None, tarif
         verdict = "Verified"
     else:
         verdict = "Not verified"
-    saved_kwh = max(0.0, (pre_day - post_day) * post_days) if verdict == "Verified" and pattern not in ("warm_running", "supply_group_off") else 0.0
+    saved_kwh = (max(0.0, float(baseline.sum() - post.sum()))
+                 if verdict == "Verified" and pattern not in ("warm_running", "supply_group_off") else 0.0)
     return {"verdict": verdict, "fix_date": fix, "pre_start": pre_start, "post_end": post_end, "post_days": post_days,
-            "pre_per_day": pre_day, "post_per_day": post_day, "drop_pct": 100 * drop if pd.notna(drop) else np.nan,
+            "pre_per_day": pre_day, "post_per_day": post_day, "baseline_per_day": base_day, "baseline_series": baseline,
+            "baseline_cv_rmse_pct": fit_cv, "weather_adjusted": used_hi,
+            "drop_pct": 100 * drop if pd.notna(drop) else np.nan,
             "events_post": int(len(ev_post)), "events_last_14d": int(len(last_window)),
             "comfort_pre": c_pre, "comfort_post": c_post, "saved_kWh": saved_kwh, "saved_THB": saved_kwh * tariff,
             "metric": METRIC_LABEL[pattern], "pre_series": pre, "post_series": post}

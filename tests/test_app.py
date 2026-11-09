@@ -17,12 +17,21 @@ CASES = [
 ]
 
 
+def set_timeframe(at, mode):
+    """'Day' = Operate (replay one day); Week / Month / Jul–Dec = Review over that period."""
+    if mode == "Day":
+        at.session_state["app_mode"] = "Operate"
+    else:
+        at.session_state["app_mode"] = "Review"
+        at.session_state["tf_period"] = mode
+
+
 def make(view, mode, date):
     at = AppTest.from_file(APP, default_timeout=180)
     at.run()
     assert not at.exception, at.exception
     at.sidebar.selectbox[0].set_value(view)
-    at.session_state["tf_mode"] = mode
+    set_timeframe(at, mode)
     if date:
         import datetime as dt
         at.session_state["tf_date"] = dt.date.fromisoformat(date)
@@ -43,7 +52,7 @@ def test_twin_modes_run(view, tf, date, mode):
     at = AppTest.from_file(APP, default_timeout=180)
     at.run()
     at.sidebar.selectbox[0].set_value(view)
-    at.session_state["tf_mode"] = tf
+    set_timeframe(at, tf)
     if date:
         import datetime as dt
         at.session_state["tf_date"] = dt.date.fromisoformat(date)
@@ -67,3 +76,19 @@ def test_asset_card_and_sim_settings_shared():
     twin_btn.click()
     at.run()
     assert not at.exception, [e.value for e in at.exception]
+
+
+def test_operate_raise_work_order_and_review_tabs():
+    """Operate: the incident panel raises a work order in one click and then shows it. Review: verification instead."""
+    at = make("all", "Day", "2019-07-27")
+    raise_btn = [b for b in at.button if b.label == "Raise work order"]
+    assert raise_btn, "the selected incident should offer a work order"
+    raise_btn[0].click()
+    at.run()
+    assert not at.exception, [e.value for e in at.exception]
+    assert any(b.label == "Save" and b.key.startswith("wo_save_") for b in at.button), "the new work order is shown"
+    set_timeframe(at, "Month")
+    at.run()
+    assert not at.exception, [e.value for e in at.exception]
+    heads = [h.value for h in at.subheader]
+    assert "Verification of fixes" in heads and "Incidents and work orders" not in heads
