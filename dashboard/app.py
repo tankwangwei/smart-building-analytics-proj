@@ -346,12 +346,7 @@ def load_floor(floor):
                                                    parse_dates=True)
                                        if (OUT / "forecast_validation_predictions.csv").exists() else None)}
     data["peak_threshold"] = data["baseline_demand"].quantile(.9)
-    # The dashboard's weather-aware methods all use heat index; the notebook's temperature-only variant is left out
-    for key in ("forecast", "validation_predictions"):
-        if data[key] is not None:
-            data[key] = data[key].drop(columns=[TEMP_MODEL], errors="ignore")
-    for key in ("test_metrics", "validation_metrics"):
-        data[key] = data[key].drop(index=[TEMP_MODEL], errors="ignore")
+    # The temperature-only variant (M7) stays in: next to the heat-index version (M8) it shows why heat index was chosen
     return data
 
 
@@ -1674,11 +1669,13 @@ with tab_forecast:
                               "own chosen method and adds them up: "
                               + "; ".join(f"Floor {f}: {MODEL_LABELS.get(m, m)}" for f, m in floor_choice.items())
                               + ". ")
-    forecast_help += ("Peak-hour error = average error in hours at or above the baseline's busiest 10 % level. "
+    forecast_help += ("Peak-hour MAE = MAE in hours at or above the baseline's busiest 10 % level. "
                       "Bias (NMBE, ASHRAE sign): + means it predicts too "
-                      "low on average, − too high. Methods with heat index use the observed Open-Meteo heat index in "
-                      "place of a forecast one, so their errors are optimistic. Chart: blue = chosen, green = uses heat "
-                      "index. "
+                      "low on average, − too high. Weather methods use the observed Open-Meteo heat index (or temperature, "
+                      "for 'Typical weekly pattern + temperature') in place of a forecast one, so their errors are "
+                      "optimistic. 'Typical weekly pattern + temperature' is kept beside '+ heat index' to show why heat "
+                      "index was chosen: humidity matters as well as temperature. Chart: blue = chosen, green = uses "
+                      "weather. "
                       "Scored against the AC load of "
                       + (f"Floors {', '.join(map(str, FLOORS[:-1]))} and {FLOORS[-1]} combined" if floor == ALL
                          else f"Floor {floor} (its 4 AC units)")
@@ -1721,10 +1718,10 @@ with tab_forecast:
                      width="stretch", height=table_height(len(tm), 420), column_config={
                          "Rank": st.column_config.NumberColumn("#", width=35),
                          "Model": st.column_config.TextColumn("Method (✓ = use this)", width="large"),
-                         "MAE_kW": st.column_config.NumberColumn("Avg error (kW)", format="%.2f",
-                                                                 help="Average forecast error per hour. Lower is better."),
-                         "peak_hour_MAE_kW": st.column_config.NumberColumn("Peak-hour error", format="%.2f",
-                                                                           help="Average error in the busiest 10 % of hours (kW)."),
+                         "MAE_kW": st.column_config.NumberColumn("MAE (kW)", format="%.2f",
+                                                                 help="Mean absolute error: the average of |actual − forecast| per hour, Jul–Dec 2019. Lower is better."),
+                         "peak_hour_MAE_kW": st.column_config.NumberColumn("Peak-hour MAE (kW)", format="%.2f",
+                                                                           help="MAE in the busiest 10% of hours (at or above the baseline's 90th percentile demand): how far off the forecast is when it matters for planning peaks."),
                          "NMBE_pct": st.column_config.NumberColumn("Bias %", format="%+.1f",
                                                                    help="ASHRAE sign: + = predicts too low on average, − = too high.")})
         with st.expander("More accuracy measures"):
@@ -1744,7 +1741,7 @@ with tab_forecast:
         fig = go.Figure(go.Bar(y=[MODEL_LABELS.get(m, m) for m in order], x=tm.loc[order, "MAE_kW"], orientation="h",
                                marker_color=colours, text=tm.loc[order, "MAE_kW"].round(2), textposition="outside",
                                cliponaxis=False, hovertemplate="%{y}: %{x:.2f} kW<extra></extra>"))
-        style(fig, table_height(len(tm), 420), None, "Avg error (kW)")
+        style(fig, table_height(len(tm), 420), None, "MAE (kW)")
         fig.update_layout(hovermode="closest")
         st.plotly_chart(fig, width="stretch")
 
