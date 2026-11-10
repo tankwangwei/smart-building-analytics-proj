@@ -447,9 +447,9 @@ def render(c):
     wos = c.store.table("work_orders")
     when = "today" if c.operate else c.period
     if c.operate:
-        c.page_note('Work the queue: click an incident to see its evidence, raise or update its work order and close it '
-                    'out. <span class="sim">Simulated</span> = seeded demo work orders and close-outs. Verification of '
-                    'fixes and learning from close-outs are look-back tasks:', "Review")
+        c.page_note('Work the queue: open an incident, raise its work order, close it out. Fix verification and learning:',
+                    "Review", more="Simulated = seeded demo work orders and close-outs. Verification of fixes and "
+                                   "learning from close-outs look back over a period, so they live in Review.")
         k = st.columns(3)
         k[0].metric("Open incidents active today", len(open_inc), help="At least one episode today, not yet resolved or dismissed.")
         k[1].metric("Excess THB at stake today", f"{open_inc['period_THB'].sum():,.0f}", help="Open incidents, today's episodes.")

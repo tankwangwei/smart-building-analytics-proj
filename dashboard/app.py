@@ -4,6 +4,7 @@ Run `python run_all_floors.py` first (it writes ac_analysis_outputs/floor_<n>/),
     streamlit run dashboard/app.py
 """
 import datetime as dt
+import hashlib
 import os
 import re
 from html import escape as escape_html
@@ -83,13 +84,13 @@ h3 {font-size: 1.05rem !important; line-height: 1.45 !important; padding: 1rem 0
 [data-testid="stDataFrame"], [data-testid="stPlotlyChart"], iframe {border-radius: 14px;}
 .card-h {font-size: 1rem; font-weight: 600; margin-bottom: .4rem;}
 .card-f {font-size: .8rem; color: #9fb0cc; text-align: right; margin-top: .3rem;}
-.mode-banner {font-size: .85rem; color: #c9d6ea; padding: .5rem .9rem; border-radius: 10px; margin: .1rem 0 .2rem;
-               border: 1px solid rgba(140,170,220,.18); border-left: 4px solid var(--mode);}
+.mode-banner {font-size: .75rem; color: #9fb0cc; padding: .2rem .7rem; border-radius: 10px; margin: .3rem 0 .7rem auto;
+               width: fit-content; max-width: 100%; line-height: 1.45; border: 1px solid rgba(140,170,220,.18); border-left: 3px solid var(--mode);}
 .mode-banner.op {--mode: #1baf7a; background: rgba(27,175,122,.08);}
 .mode-banner.rv {--mode: #5aa9ff; background: rgba(90,169,255,.08);}
 .mode-banner b {color: #e8eef9;}
 .st-key-tf-controls [data-testid="stButtonGroup"] button {min-height: 40px;}
-.page-note {font-size: .82rem; color: #9fb0cc; margin: -.2rem 0 .3rem;}
+.page-note {font-size: .82rem; color: #9fb0cc; margin: .2rem 0 1.1rem;}
 .page-note .switch {color: #c9d6ea; margin-left: .3rem;}
 .page-note .sim {font-size: .68rem; padding: 1px 7px; border-radius: 999px; border: 1px solid #f0a03c; color: #f0a03c;}
 .kpis {display: flex; gap: 14px 30px; flex-wrap: wrap; justify-content: center; margin: .3rem 0 .9rem;}
@@ -123,7 +124,7 @@ h3 {font-size: 1.05rem !important; line-height: 1.45 !important; padding: 1rem 0
                 color: #9fb0cc;}
 .item.ai .chip.sev {color: var(--sev); border-color: var(--sev); font-weight: 600; letter-spacing: .04em;}
 .takeaway {border-left: 3px solid #3b8beb; background: rgba(59,139,235,.10); border-radius: 0 .4rem .4rem 0;
-           padding: .55rem .9rem; line-height: 1.5;}
+           padding: .55rem .9rem; line-height: 1.5; margin: .2rem 0 1rem;}
 /* "Ask the data": a round button floating in the bottom-right corner that opens the chat */
 .st-key-chat-fab {position: fixed; right: 28px; bottom: 26px; z-index: 999990; width: auto !important;}
 .st-key-chat-fab [data-testid="stPopoverButton"] {width: 58px; height: 58px; border-radius: 50%; padding: 0;
@@ -252,7 +253,9 @@ def forecast_metrics(table, models, peak_threshold):
 
 
 @st.cache_data(show_spinner="Combining all floors…")
-def load_building():
+def load_building(code_version):
+    """`code_version` is only a cache key: the building combines cached floors, so it must refresh whenever the code
+    that loads a floor changes, not just when this function's own code does."""
     parts = {f: load(f) for f in FLOORS}
     first = parts[FLOORS[0]]
     data = {"detail": pd.concat([p["detail"] for p in parts.values()], ignore_index=True),
@@ -306,7 +309,11 @@ def load_building():
 def load(floor):
     """The whole building or one floor. Not cached itself: each loader has its own cache, so a code change to
     either one refreshes it (a cached dispatcher kept serving stale building data after load_building changed)."""
-    return load_building() if floor == ALL else load_floor(floor)
+    return load_building(CODE_VERSION) if floor == ALL else load_floor(floor)
+
+
+# Any change to this file gives the building cache a new key (see load_building)
+CODE_VERSION = hashlib.md5(Path(__file__).read_bytes()).hexdigest()
 
 
 @st.cache_data(show_spinner="Loading analysis outputs…")
@@ -339,6 +346,12 @@ def load_floor(floor):
                                                    parse_dates=True)
                                        if (OUT / "forecast_validation_predictions.csv").exists() else None)}
     data["peak_threshold"] = data["baseline_demand"].quantile(.9)
+    # The dashboard's weather-aware methods all use heat index; the notebook's temperature-only variant is left out
+    for key in ("forecast", "validation_predictions"):
+        if data[key] is not None:
+            data[key] = data[key].drop(columns=[TEMP_MODEL], errors="ignore")
+    for key in ("test_metrics", "validation_metrics"):
+        data[key] = data[key].drop(index=[TEMP_MODEL], errors="ignore")
     return data
 
 
@@ -519,10 +532,10 @@ data_first, data_last = detail_all["Date"].min().date(), detail_all["Date"].max(
 _jump = st.session_state.pop("jump_to_day", None)
 if _jump is not None:
     st.session_state["app_mode"], st.session_state["tf_date"] = "Operate", _jump
-head, controls = st.columns([1, 1.05], vertical_alignment="bottom")
+head, right = st.columns([1, 1.05], vertical_alignment="bottom")
 # One tight, right-aligned group so the three controls read as a single picker rather than three floating widgets.
-controls = controls.container(horizontal=True, horizontal_alignment="right", vertical_alignment="bottom", gap="small",
-                              key="tf-controls")
+controls = right.container(horizontal=True, horizontal_alignment="right", vertical_alignment="bottom", gap="small",
+                           key="tf-controls")
 mode_col = tf_mode_col = tf_date_col = controls
 head.title("Chamchuri 5 · AC energy monitor",
            help="Where is air-conditioning energy wasted, and what load should we plan for? Flags are potential anomalies "
@@ -567,21 +580,25 @@ scope_desc = (f"Floors {', '.join(map(str, FLOORS[:-1]))} and {FLOORS[-1]} · {l
               else f"{SCOPE_NAME} · {len(units)} AC units")
 SPAN = "today" if OPERATE else {"Week": "this week", "Month": "this month"}.get(tf_mode, "Jul–Dec")
 _holiday = closure_name(period_start.date()) if OPERATE else None
+# A small status pill under the mode switch; the detail sits behind its ⓘ
 if OPERATE:
-    _banner = (f'<b>▶ Operate</b> · replay: acting as if today is <b>{period_start:%a %d %b %Y}</b>'
-               + (f" · 🎌 {_holiday}" if _holiday else "") + f' · {scope_desc} · historical CU-BEMS data, not live '
-               f'(with a live building-management feed this would be the current day)')
+    _banner = (f'<b>▶ Operate</b> · today is <b>{period_start:%a %d %b %Y}</b>' + (f" · 🎌 {_holiday}" if _holiday else "")
+               + " · today's alerts, work orders and tomorrow's forecast"
+               + tip(f"Operate replays a past day as if it were today. {scope_desc}. Historical CU-BEMS data, not live: "
+                     "with a live building-management feed this would be the current day. Switch to Review to look back "
+                     "over a week, a month or Jul–Dec."))
 else:
-    _range = "" if tf_mode == "Week" else f", {period_start:%d %b} – {period_end - pd.Timedelta(days=1):%d %b %Y}"
-    _banner = (f'<b>◷ Review</b> · <b>{PERIOD}</b> ({PERIOD_DAYS} days{_range}) · {scope_desc} · '
-               f'looking back over the period')
-st.markdown(f'<div class="mode-banner {"op" if OPERATE else "rv"}">{_banner}</div>', unsafe_allow_html=True)
+    _range = "" if tf_mode == "Week" else f"{period_start:%d %b} – {period_end - pd.Timedelta(days=1):%d %b %Y}, "
+    _banner = (f'<b>◷ Review</b> · <b>{PERIOD}</b> ({PERIOD_DAYS} days) · trends, rankings and whether fixes worked'
+               + tip(f"Review looks back over the period ({_range}{PERIOD_DAYS} days). {scope_desc}. Switch to Operate "
+                     "to work a single day's alerts and work orders."))
+right.markdown(f'<div class="mode-banner {"op" if OPERATE else "rv"}">{_banner}</div>', unsafe_allow_html=True)
 
 
-def page_note(text, switch_to=None):
-    """One line under the banner saying what this page does in the current mode (and where the other half lives)."""
+def page_note(text, switch_to=None, more=None):
+    """One short line at the top of a tab saying what it does in the current mode; detail sits behind an ⓘ."""
     extra = f' <span class="switch">→ switch to <b>{switch_to}</b> at the top</span>' if switch_to else ""
-    st.markdown(f'<div class="page-note">{text}{extra}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="page-note">{text}{tip(more) if more else ""}{extra}</div>', unsafe_allow_html=True)
 
 with st.sidebar:
     with st.expander("Building Opening Hours"):
@@ -1511,10 +1528,11 @@ with tab_orders:
     fm_tabs.render(FM_CTX)
 
 with tab_maint:
-    page_note('Workflow demo <span class="sim">Simulated</span> · health indicators come from the real meter data; the maintenance log, fault-risk '
-              'model and likely causes are simulated. '
-              + (f"Health and service dates as of today ({period_start:%d %b})." if OPERATE
-                 else f"Health as of the end of the period ({period_end - pd.Timedelta(days=1):%d %b})."))
+    page_note('Workflow demo <span class="sim">Simulated</span> · '
+              + (f"health as of today ({period_start:%d %b})" if OPERATE
+                 else f"health as of {period_end - pd.Timedelta(days=1):%d %b}"),
+              more="Health indicators come from the real meter data; the maintenance log, fault-risk model and likely "
+                   "causes are simulated.")
     fm_maint_ui.maintenance_tab(FM_CTX)
 
 # ================================================================ compare floors
@@ -1636,7 +1654,7 @@ with tab_compare:
 with tab_forecast:
     page_note("Plan for tomorrow: expected peak, high-demand hours and the error band. Accuracy below is always scored "
               "on Jul–Dec 2019." if OPERATE else "How accurate the forecast is (always scored on Jul–Dec 2019) and how "
-              "it tracked this period.", None if OPERATE else "Operate to plan a specific tomorrow")
+              "it tracked this period. To plan a specific tomorrow,", None if OPERATE else "Operate")
     scope_note("accuracy is always scored on Jul–Dec 2019, the week chart has its own date, and the next-day "
                "forecast follows the timeframe.")
     models = [c for c in fc.columns if c != "floor_kW"]
@@ -1658,8 +1676,9 @@ with tab_forecast:
                               + ". ")
     forecast_help += ("Peak-hour error = average error in hours at or above the baseline's busiest 10 % level. "
                       "Bias (NMBE, ASHRAE sign): + means it predicts too "
-                      "low on average, − too high. Methods with weather use observed Open-Meteo weather in place of a "
-                      "weather forecast, so their errors are optimistic. Chart: blue = chosen, green = uses weather. "
+                      "low on average, − too high. Methods with heat index use the observed Open-Meteo heat index in "
+                      "place of a forecast one, so their errors are optimistic. Chart: blue = chosen, green = uses heat "
+                      "index. "
                       "Scored against the AC load of "
                       + (f"Floors {', '.join(map(str, FLOORS[:-1]))} and {FLOORS[-1]} combined" if floor == ALL
                          else f"Floor {floor} (its 4 AC units)")
@@ -1668,7 +1687,7 @@ with tab_forecast:
                          f"chosen method's average error from {mae_without_holidays:.1f} to {selected_mae:.1f} kW per hour "
                          "(turn it off under Building Opening Hours in the sidebar)." if use_holidays else ""))
 
-    section(f"{"Tomorrow's" if OPERATE else 'Next-day'} forecast · {peak_time:%a %d %b %Y}",
+    section(("Tomorrow's" if OPERATE else "Next-day") + f" forecast · {peak_time:%a %d %b %Y}",
             help=("Tomorrow, from the replay date at the top. " if OPERATE else "The day after the review period. ")
             + n24_note[0].upper() + n24_note[1:] + ".")
     if OPERATE and HAS_ACTUAL:
@@ -1919,8 +1938,6 @@ with tab_sim:
 
 # ================================================================ digital twin
 with tab_twin:
-    page_note("Today's building, zone by zone. 'Forecast next day' shows tomorrow." if OPERATE
-              else "Replay any day in the period; it opens on the day with the most flagged excess.")
     c_head, c_date, c_days = st.columns([4, 1, 1], vertical_alignment="bottom")
     c_head.markdown("**Digital twin**", help="Interactive 3D model of Chamchuri 5, traced from the CU-BEMS paper's floor plan "
                                           "(Floors 3–7) and building view. Drag to rotate, right-drag to pan, scroll to zoom. "
