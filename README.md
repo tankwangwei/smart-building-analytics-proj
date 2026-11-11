@@ -86,13 +86,3 @@ The dashboard does not need this: the results are already in `ac_analysis_output
    ```
    Or run one floor only, for example `python run_all_floors.py 7`.
 4. Restart the dashboard (steps 6–7) to see the new results.
-
-## Put it online with Streamlit Community Cloud (optional)
-
-1. Push the repo to GitHub.
-2. Go to [share.streamlit.io](https://share.streamlit.io), sign in with GitHub and click **Create app**.
-3. Pick the repo, branch `main` and main file `dashboard/app.py`.
-4. Under **Advanced settings**, choose Python **3.12**. Newer versions break one of the packages.
-5. In the same place, paste `GEMINI_API_KEY = "your-key"` into **Secrets**, then click **Deploy**.
-
-To change the key later, go to your app → **⋮ → Settings → Secrets**.
