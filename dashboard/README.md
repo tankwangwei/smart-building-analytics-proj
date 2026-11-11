@@ -1,9 +1,41 @@
 # Building AC dashboard (Floors 3, 4, 5 and 7)
 
-1. Run `python run_all_floors.py` (about 8 minutes for four floors). It writes `ac_analysis_outputs/floor_<n>/`.
-   To run one floor only: `python run_all_floors.py 7`.
-2. Install the extra packages once: `pip install -r dashboard/requirements.txt`
-3. From the project folder: `python -m streamlit run dashboard/app.py`
+**To install and start it,** follow the numbered steps in the [main README](../README.md#run-the-dashboard-on-your-own-computer). In short, from the project folder:
+
+```bash
+python -m pip install -r dashboard/requirements.txt
+```
+
+```bash
+python -m streamlit run dashboard/app.py
+```
+
+Then open http://localhost:8501.
+
+## Using the dashboard, step by step
+
+1. **Pick what to look at.** In the left sidebar, **View** opens on **Whole building** (Floors 3, 4, 5 and 7 combined). Pick a floor to focus on it.
+2. **Pick a mode** with the switch at the top right:
+   - **Operate** replays one past day as if it were today: that day's alerts, work orders and tomorrow's forecast. It opens on Day.
+   - **Review** looks back over a week, a month or Jul–Dec 2019: trends, rankings and whether fixes worked.
+3. **Pick the date or period** with the controls next to the mode switch. The small banner under them always shows what you are looking at.
+4. **Start on the Overview tab.** It shows the key numbers, the top problems and the smart assistant's suggestions.
+5. **Open the Priority list** to see which AC units to check first, ranked by likely waste, confidence and effort. Click a unit to drill down.
+6. **Raise and close work orders** in the **Work orders** tab (Operate): click an incident, read its evidence, then raise a work order. Switch to Review to check whether fixes worked.
+7. **Explore the rest:**
+   - **Digital twin** for the building in 3D (drag to rotate, scroll to zoom, click a zone).
+   - **Simulator** to test a new setpoint or AC schedule.
+   - **Compare floors**.
+   - **Forecast** for tomorrow's demand and how accurate each method is.
+   - **Maintenance**.
+8. **Ask a question** with the round **✦ Ask the data** button at the bottom right. It needs a Gemini key (step 5 of the main README).
+9. **Hover any ⓘ or ? icon** for an explanation of that number or chart.
+
+Optional settings in the sidebar:
+- **Building Opening Hours:** opening times and public holidays.
+- **Advanced: Anomaly Thresholds:** how sensitive the anomaly flags are.
+
+## Reference: how each part works
 
 **Mode** (top right, every tab): **Operate** replays one past day as if it were today — what an FM would see that morning: today's alerts and incidents, the work-order queue and tomorrow's forecast (the actual next-day load stays hidden unless 'Show what actually happened' is switched on). With a live building-management feed it would simply track the current date. **Review** looks back over a week, a month or Jul–Dec: rank problems, compare floors, verify fixes and check flag precision. A banner under the title always says which mode and period you are in, and each tab has a one-line note on what it does in that mode. "Normal" is always learned from Jul 2018 – Jun 2019, and forecast accuracy is always scored on Jul–Dec 2019.
 
