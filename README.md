@@ -14,11 +14,7 @@ AC anomaly detection and next-day demand forecasting for CU-BEMS (Chamchuri 5, C
 | `run_all_floors.py` | Runs the notebook for Floors 3, 4, 5 and 7. |
 | `tests/`, `docs/VERIFICATION.md` | Automated accuracy checks and their report. |
 
-<<<<<<< Updated upstream
-python -m pip install -r dashboard/requirements.txt <br> python -m streamlit run dashboard/app.py
-=======
 ## Run the dashboard on your own computer
->>>>>>> Stashed changes
 
 You only need to do steps 1–4 once. After that, start from step 5.
 
