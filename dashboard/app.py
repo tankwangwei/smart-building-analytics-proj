@@ -370,6 +370,8 @@ def unit_priority(d, events, days):
     table["flagged_pct"] = 100 * table["flagged_h"] / table["valid_h"].replace(0, np.nan)
     table["flagged_excess_kWh"] = d.loc[d["flagged"]].groupby("unit")["excess_kWh_est"].sum().reindex(table.index, fill_value=0)
     table["excess_THB"] = table["flagged_excess_kWh"] * TARIFF_THB
+    closed_kwh = d.loc[d["flagged"] & d["after_hours"]].groupby("unit")["excess_kWh_est"].sum().reindex(table.index, fill_value=0)
+    table["closed_pct"] = 100 * closed_kwh / table["flagged_excess_kWh"].where(table["flagged_excess_kWh"] > 0)
     table["confidence"] = np.nan
     table["effort"] = "–"
     table["comfort_hit"] = False
@@ -424,6 +426,10 @@ PRIORITY_COLUMNS = {
                                                 help="Excess kWh × the electricity price (sidebar → Advanced). An estimate."),
     "per_day_THB": st.column_config.NumberColumn("THB per day", format="%.0f",
                                                  help="Excess THB ÷ number of days in the timeframe."),
+    "closed_pct": st.column_config.NumberColumn("% while closed", format="%.0f%%", width="small",
+                                                help="Share of this unit's excess energy that falls while the building "
+                                                     "is closed (outside opening hours, weekends, public holidays). "
+                                                     "High = a schedule or timer problem, not a faulty unit."),
     "confidence": st.column_config.ProgressColumn("Confidence", min_value=0, max_value=100, format="%.0f",
                                                   help=CONFIDENCE_HELP),
     "effort": st.column_config.TextColumn("Effort", help="Low = schedule or timer fix · Medium = inspect · High = repair."),
@@ -736,14 +742,19 @@ for f in FLOORS:
     for u, part in fd.loc[fd["eligible"]].groupby("unit"):
         peer_mean[u] = part["actual_kW"].mean()
     fk = period_kpis(f, period_start, period_end, OPEN)
+    ff = fd.loc[fd["flagged"]]
     s_ = load(f)["sensitivity"]
     floor_rows.append({"Floor": f"Floor {f}", "AC energy kWh": fk["energy_kWh"], "After-hours %": fk["after_pct"],
                        "15-min peak kW": fk["peak_kW"], "Flagged events": len(fev),
                        "Excess kWh (est.)": fpr["flagged_excess_kWh"].sum(),
                        "Excess THB": fpr["excess_THB"].sum(),
+                       "Waste while closed %": (100 * ff.loc[ff["after_hours"], "excess_kWh_est"].sum()
+                                                / ff["excess_kWh_est"].sum() if ff["excess_kWh_est"].sum() > 0 else np.nan),
                        "Triage score": fpr["triage_score"].sum(),
                        "Median indoor °C (running)": s_["median_indoor_temp_C_running"].median()})
 floors_table = pd.DataFrame(floor_rows)
+floors_table["Share of waste %"] = 100 * floors_table["Excess THB"] / max(1e-9, floors_table["Excess THB"].sum())
+floors_table["THB per event"] = floors_table["Excess THB"] / floors_table["Flagged events"].replace(0, np.nan)
 allunits = pd.concat(unit_tables)
 allunits["position"] = allunits.index.map(position_of)
 allunits["mean_kW"] = allunits.index.map(peer_mean)
@@ -1203,8 +1214,9 @@ def period_summary_chart():
                help=HOT_DAY_HELP)
     if s["excess"].fillna(0).max() > 0:
         w = s["excess"].idxmax()
-        takeaway(f"Worst day: <b>{w:%a %d %b}</b>, {s.loc[w, 'excess']:,.0f} kWh flagged "
-                 f"({100 * s['excess'].sum() / s['kWh'].sum():.0f}% of the period's AC energy was flagged excess).",
+        _x = s["excess"].sum()
+        takeaway(f"Worst day: <b>{w:%a %d %b}</b>, {s.loc[w, 'excess']:,.0f} kWh flagged. Period total: <b>{_x:,.0f} kWh</b> "
+                 f"flagged excess ≈ {_x * TARIFF_THB:,.0f} THB ({100 * _x / s['kWh'].sum():.1f}% of the AC energy used).",
                  more="Click its bar to replay that day in Operate.")
 
 
@@ -1349,7 +1361,7 @@ with tab_priority:
                  "unusually high, outside the unit's usual hours, or high for 2 hours or more are flagged. " + PRIORITY_HELP
                  + " Chart: act first on the top right; bubble size = number of times flagged.")
     cols = ["rank", "priority_level", "AC unit", "issue", "flagged_excess_kWh", "excess_THB"] + (
-        ["per_day_THB"] if PERIOD_DAYS > 1 else []) + ["confidence", "effort", "triage_score", "room_while_flagged", "events"]
+        ["per_day_THB"] if PERIOD_DAYS > 1 else []) + ["closed_pct", "confidence", "effort", "triage_score", "room_while_flagged", "events"]
     with st.container(key="card-triage"):
         scatter = priority.loc[priority["events"].gt(0)].copy()
         if len(scatter):
@@ -1518,6 +1530,55 @@ with tab_priority:
                  more=f"{when_pct.max():.0f}% of the extra energy is used {when_phrase}, and {after_hours_pct:.0f}% falls "
                       "outside the units' usual schedule.")
 
+        def _length(h):
+            return "–" if pd.isna(h) else f"{h * 60:.0f} min" if h < 1 else f"{h:g} h"
+
+        _ed, _tot = events["start"].dt.dayofweek, max(1e-9, events["excess_kWh"].sum())
+        _closed = events["after_hours_h"].gt(0) & events["closed_share"].ge(.5)
+        _rows = []
+        for _name, _mask in [("Weekdays (Mon–Fri)", _ed.lt(5)), ("Weekends", _ed.ge(5)), ("· Saturday", _ed.eq(5)),
+                             ("· Sunday", _ed.eq(6)), ("On while closed (any day)", _closed), ("All other events", ~_closed)]:
+            _e = events.loc[_mask]
+            _rows.append({"When": _name, "Events": len(_e), "% of events": 100 * len(_e) / len(events),
+                          "Typical length": _length(_e["duration_h"].median()), "Longest": _length(_e["duration_h"].max()),
+                          "Wasted kWh": _e["excess_kWh"].sum(), "% of waste": 100 * _e["excess_kWh"].sum() / _tot,
+                          "kWh per event": _e["excess_kWh"].sum() / len(_e) if len(_e) else np.nan})
+        st.dataframe(pd.DataFrame(_rows), hide_index=True, width="stretch", height=table_height(len(_rows), 300), column_config={
+            "When": st.column_config.TextColumn(
+                "Events by when they start", help="Each event is counted on the day it starts; public holidays count on their "
+                "weekday. 'On while closed' = events that are mostly while the building is closed, on any day. The bars "
+                "above split by 15-minute reading instead, so their shares can differ by a point."),
+            "% of events": st.column_config.NumberColumn(format="%.0f%%"),
+            "Typical length": st.column_config.TextColumn(help="Median length of an event."),
+            "Wasted kWh": st.column_config.NumberColumn(format="%.0f"),
+            "% of waste": st.column_config.NumberColumn(format="%.0f%%"),
+            "kWh per event": st.column_config.NumberColumn(format="%.1f")})
+
+        if events["start"].dt.to_period("M").nunique() > 1:
+            section("Month by month",
+                    help="Wasted energy by the month and day an event starts. Weekend = events starting on a Saturday or "
+                         "Sunday. A falling weekend bar means the weekend runs stopped; it does not say why.")
+            _mon = events.assign(month=events["start"].dt.to_period("M"), weekend=_ed.ge(5))
+            _m = pd.DataFrame({"Events": _mon.groupby("month").size(),
+                               "Weekend kWh": _mon.loc[_mon["weekend"]].groupby("month")["excess_kWh"].sum(),
+                               "Weekday kWh": _mon.loc[~_mon["weekend"]].groupby("month")["excess_kWh"].sum()}).fillna(0)
+            _m["Total kWh"] = _m["Weekend kWh"] + _m["Weekday kWh"]
+            _m.insert(0, "Month", [p.strftime("%b %Y") for p in _m.index])
+            c1, c2 = st.columns([2, 3], gap="large")
+            c1.dataframe(_m, hide_index=True, width="stretch", height=table_height(len(_m), 300), column_config={
+                k: st.column_config.NumberColumn(format="%.0f") for k in ["Weekend kWh", "Weekday kWh", "Total kWh"]})
+            fig = go.Figure([go.Bar(x=_m["Month"], y=_m["Weekend kWh"], name="Weekend", marker_color=FLAG),
+                             go.Bar(x=_m["Month"], y=_m["Weekday kWh"], name="Weekday", marker_color=ACTUAL)])
+            fig.update_layout(barmode="stack")
+            c2.plotly_chart(style(fig, 300, "Wasted kWh"), width="stretch")
+            _first, _last = _m.iloc[0], _m.iloc[-1]
+            if _first["Total kWh"] > 0:
+                _chg = 100 * (_last["Total kWh"] / _first["Total kWh"] - 1)
+                takeaway(f"Wasted energy {_first['Total kWh']:,.0f} → {_last['Total kWh']:,.0f} kWh "
+                         f"({_chg:+.0f}%), {_first['Month'][:3]} to {_last['Month'][:3]}; weekend "
+                         f"{_first['Weekend kWh']:,.0f} → {_last['Weekend kWh']:,.0f} kWh.",
+                         more="The last month can be incomplete if the data ends before the month does.")
+
 
 with tab_orders:
     fm_tabs.render(FM_CTX)
@@ -1546,20 +1607,39 @@ with tab_compare:
     b2.metric("AC energy, all floors", f"{floors_table['AC energy kWh'].sum():,.0f} kWh")
     b3.metric("Flagged events", f"{int(floors_table['Flagged events'].sum()):,}")
     b4.metric("Floor to review first", worst_floor["Floor"], help="Highest total triage score")
-    t, c1, c2 = st.columns([3, 1, 1], gap="medium")
-    t.dataframe(floors_table[["Floor", "AC energy kWh", "Excess THB", "Triage score", "After-hours %", "Flagged events",
-                              "Median indoor °C (running)"]].round(1),
-                hide_index=True, width="stretch", height=table_height(len(floors_table), 300),
-                column_config={"AC energy kWh": st.column_config.NumberColumn("AC kWh", format="%.0f"),
+    st.dataframe(floors_table[["Floor", "Flagged events", "Excess kWh (est.)", "Excess THB", "Share of waste %",
+                               "THB per event", "Waste while closed %", "Triage score", "AC energy kWh", "After-hours %",
+                               "Median indoor °C (running)"]].round(1),
+                 hide_index=True, width="stretch", height=table_height(len(floors_table), 300),
+                 column_config={"AC energy kWh": st.column_config.NumberColumn(
+                                    "AC kWh", format="%.0f", help="All AC energy the floor used, wasted or not."),
+                               "Excess kWh (est.)": st.column_config.NumberColumn(
+                                   "Wasted kWh", format="%.0f", help="Energy above normal during flagged times (estimate)."),
                                "Excess THB": st.column_config.NumberColumn("Wasted THB", format="%.0f"),
+                               "Share of waste %": st.column_config.NumberColumn(
+                                   "Share of waste", format="%.1f%%",
+                                   help="This floor's wasted THB ÷ the wasted THB of all floors."),
+                               "THB per event": st.column_config.NumberColumn(
+                                   "THB per event", format="%.1f",
+                                   help="Wasted THB ÷ flagged events. High = few but costly events."),
+                               "Waste while closed %": st.column_config.NumberColumn(
+                                   "Waste while closed", format="%.0f%%",
+                                   help="Share of the floor's WASTED energy that falls while the building is closed."),
                                "Triage score": st.column_config.NumberColumn(format="%.0f"),
                                "After-hours %": st.column_config.NumberColumn(
-                                   "% while closed", format="%.1f", help="Share of AC energy used while the building was closed."),
+                                   "AC energy while closed", format="%.1f%%",
+                                   help="Share of ALL the floor's AC energy used while the building was closed. Not the "
+                                        "same as 'Waste while closed', which looks only at the wasted energy."),
                                "Flagged events": st.column_config.NumberColumn("Events"),
                                "Median indoor °C (running)": st.column_config.NumberColumn(
                                    "Indoor °C", format="%.1f", help="Median indoor temperature while the AC runs.")})
-    for col, metric, title in [(c1, "Triage score", "Triage score"),
-                               (c2, "After-hours %", "Used while closed (%)")]:
+    _n, _thb = int(floors_table["Flagged events"].sum()), floors_table["Excess THB"].sum()
+    st.caption(f"All floors: {_n:,} events · {floors_table['Excess kWh (est.)'].sum():,.0f} kWh wasted · {_thb:,.0f} THB · "
+               f"{_thb / max(1, _n):.1f} THB per event")
+    c1, c2, c3 = st.columns(3, gap="medium")
+    for col, metric, title in [(c1, "Share of waste %", "Share of wasted cost (%)"),
+                               (c2, "Triage score", "Triage score"),
+                               (c3, "After-hours %", "AC energy used while closed (%)")]:
         fig = go.Figure(go.Bar(x=floors_table["Floor"].str.replace("Floor ", "F"), y=floors_table[metric],
                                marker_color=[FLAG if f == worst_floor["Floor"] else ACTUAL for f in floors_table["Floor"]],
                                text=floors_table[metric].map(lambda v: "" if pd.isna(v) else f"{v:,.0f}" if v >= 100 or v == 0 else f"{v:.1f}"),
